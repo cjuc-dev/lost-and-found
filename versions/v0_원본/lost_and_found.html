@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>분실물 통합 관리 시스템</title>
+  <meta name="description" content="시설 분실물 통합 관리 시스템"/>
+  <meta name="theme-color" content="#1a2b5e"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        /* 청주도시공사 네이비 */
+        gov:  { 50:'#eef1f8',100:'#d5dcee',200:'#abbade',300:'#7f97cd',400:'#5577bc',500:'#3a5caa',600:'#2d4a94',700:'#233c7d',800:'#1a2b5e',900:'#111d42' },
+        /* 오렌지 포인트 */
+        brand:{ 50:'#fff8f3',100:'#ffe8d6',200:'#ffc9a0',300:'#ffa96a',400:'#f88236',500:'#f06a21',600:'#d95a14',700:'#b84a0e',800:'#913a0a',900:'#6f2c07' }
+      }}}
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;background:#f4f6fa;color:#1a2b5e;}
+    .fade-in{animation:fadeIn 0.25s ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .camera-preview{width:100%;max-width:480px;border-radius:8px;background:#000;}
+    /* 상태 뱃지 — 청주도시공사 스타일 */
+    .status-holding{background:#e8edf8;color:#1a2b5e;border:1px solid #b0bedd;}
+    .status-completed{background:#e6f4ea;color:#1b5e2f;border:1px solid #9dd0ac;}
+    .status-disposed{background:#f2f2f2;color:#666;border:1px solid #ccc;}
+    /* 경과 뱃지 */
+    .age-1m{background:#fff3e0;color:#e65100;}
+    .age-2m{background:#ffe0b2;color:#bf360c;}
+    .age-3m{background:#ffccbc;color:#b71c1c;}
+    .age-4m{background:#fce4ec;color:#880e4f;}
+    .card-age-1m{border-color:#ffb74d!important;}
+    .card-age-2m{border-color:#ff8a65!important;}
+    .card-age-3m{border-color:#ef5350!important;}
+    .card-age-4m{border-color:#ec407a!important;}
+    .row-age-1m{background:#fffde7;}
+    .row-age-2m{background:#fff8e1;}
+    .row-age-3m{background:#fff3e0;}
+    .row-age-4m{background:#fce4ec;}
+    input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;}
+    ::-webkit-scrollbar{width:5px;height:5px;}
+    ::-webkit-scrollbar-track{background:#f0f2f7;}
+    ::-webkit-scrollbar-thumb{background:#b0bedd;border-radius:4px;}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;}
+    .modal-box{background:#fff;border-radius:4px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(26,43,94,0.18);}
+    @media(max-width:640px){.modal-box{max-height:95vh;border-radius:4px;}}
+    .select-mode-active{outline:2px solid #f06a21;outline-offset:2px;}
+    .item-selected{outline:2px solid #f06a21!important;outline-offset:2px;}
+    /* 툴팁 */
+    .has-tooltip{position:relative;}
+    .has-tooltip .tooltip-box{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#1a2b5e;color:#fff;font-size:11px;line-height:1.5;font-weight:500;padding:8px 11px;border-radius:4px;white-space:normal;min-width:200px;max-width:260px;text-align:left;box-shadow:0 4px 16px rgba(26,43,94,0.25);z-index:999;pointer-events:none;}
+    .has-tooltip .tooltip-box::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:#1a2b5e;}
+    .has-tooltip:hover .tooltip-box{display:block;animation:fadeIn 0.15s ease;}
+    .has-tooltip.tooltip-left .tooltip-box{left:0;transform:none;}
+    .has-tooltip.tooltip-left .tooltip-box::after{left:20px;transform:none;}
+    .has-tooltip.tooltip-right .tooltip-box{left:auto;right:0;transform:none;}
+    .has-tooltip.tooltip-right .tooltip-box::after{left:auto;right:20px;transform:none;}
+    /* 게이트 페이지 */
+    .gate-bg{min-height:100vh;background:#f4f6fa;}
+    .gate-card{background:#fff;border-radius:4px;box-shadow:0 4px 24px rgba(26,43,94,0.12);border:1px solid #d5dcee;}
+    /* 타이머 카운트다운 */
+    @keyframes timerPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.15);opacity:0.8}}
+    .timer-count{animation:timerPulse 1s ease-in-out infinite;}
+    /* 사진 썸네일 그리드 */
+    .photo-thumb{position:relative;aspect-ratio:1;overflow:hidden;border-radius:4px;border:2px solid #d5dcee;background:#f8faff;cursor:pointer;transition:border-color 0.15s;}
+    .photo-thumb.primary{border-color:#f06a21;}
+    .photo-thumb:hover{border-color:#1a2b5e;}
+    .photo-thumb .del-btn{position:absolute;top:3px;right:3px;background:rgba(220,38,38,0.9);color:#fff;border:none;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:10px;line-height:1;}
+    .photo-add-slot{aspect-ratio:1;border-radius:4px;border:2px dashed #abbade;background:#f4f6fa;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;transition:all 0.15s;}
+    .photo-add-slot:hover{border-color:#1a2b5e;background:#eef1f8;}
+    /* 헤더 하단 오렌지 라인 */
+    .header-accent{border-bottom:3px solid #f06a21;}
+    /* 카테고리 버튼 active */
+    .cat-btn-active{background:#1a2b5e!important;color:#fff!important;border-color:#1a2b5e!important;}
+    /* 요약카드 hover */
+    .summary-card{transition:all 0.18s;border:1px solid #dde2ef;}
+    .summary-card:hover{border-color:#f06a21;box-shadow:0 2px 12px rgba(240,106,33,0.1);}
+    .summary-card.active{border-color:#1a2b5e!important;background:#eef1f8!important;}
+    /* 테이블 */
+    .data-table th{background:#f0f2f8;color:#1a2b5e;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;}
+    .data-table tr:hover{background:#f8f9fd;}
+    /* 입력 필드 포커스 */
+    .field-input:focus{outline:none;border-color:#1a2b5e;box-shadow:0 0 0 2px rgba(26,43,94,0.12);}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ══════════════════════════════════════════
+   1. Firebase 설정
+══════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "AIzaSyD8dO860fhZoEVZdFruou32HtHfkZVOGCM",
+  authDomain:        "opsmaster-3fbf9.firebaseapp.com",
+  projectId:         "opsmaster-3fbf9",
+  storageBucket:     "opsmaster-3fbf9.firebasestorage.app",
+  messagingSenderId: "453123301113",
+  appId:             "1:453123301113:web:e9e6d0e1169789766b4c28",
+  measurementId:     "G-YKELC63WT5"
+};
+const RAW_APP_ID = firebaseConfig.appId || "lost-and-found";
+const APP_ID     = RAW_APP_ID.replace(/[^a-zA-Z0-9_-]/g,"_");
+const ADMIN_CODE = "ADMIN777";
+const BASE_PATH  = `artifacts/${APP_ID}/public/data`;
+// 시설 목록 컬렉션
+const FACILITIES_COL = `${BASE_PATH}/facilities`;
+// 시설별 경로 생성 함수
+const facilityCol   = (fc) => `${BASE_PATH}/facilities/${fc}/lost_items`;
+const counterCol    = (fc) => `${BASE_PATH}/facilities/${fc}/counters`;
+// 로그 컬렉션 경로
+const VISIT_LOGS_COL    = `${BASE_PATH}/visit_logs`;    // 시설 입장 로그
+const ACTIVITY_LOGS_COL = `${BASE_PATH}/activity_logs`; // 분실물 등록/처리 로그
+
+let db;
+try { firebase.app(); } catch(e) { firebase.initializeApp(firebaseConfig); }
+db = firebase.firestore();
+
+/* ── 세션 ID (브라우저 탭당 고유) ── */
+function getSessionId(){
+  let sid=sessionStorage.getItem("_sid");
+  if(!sid){ sid=Date.now().toString(36)+Math.random().toString(36).slice(2,7); sessionStorage.setItem("_sid",sid); }
+  return sid;
+}
+
+/* ── 방문 로그 기록 (시설 입장 시 1회) ── */
+async function logVisit(facilityCode, facilityName){
+  try {
+    const sid=getSessionId();
+    const alreadyLogged=sessionStorage.getItem("_visited_"+facilityCode);
+    if(alreadyLogged) return; // 같은 탭에서 중복 기록 방지
+    await db.collection(VISIT_LOGS_COL).add({
+      facilityCode, facilityName,
+      sessionId: sid,
+      visitedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      dateStr: new Date().toISOString().slice(0,10),
+    });
+    sessionStorage.setItem("_visited_"+facilityCode, "1");
+  } catch(e){ /* 로그 실패는 조용히 무시 */ }
+}
+
+/* ── 활동 로그 기록 (분실물 등록/처리 시) ── */
+async function logActivity(type, facilityCode, facilityName, detail){
+  // type: "register" | "complete" | "dispose" | "delete"
+  try {
+    await db.collection(ACTIVITY_LOGS_COL).add({
+      type, facilityCode, facilityName,
+      detail,   // { receiptNo, itemName, location } 등
+      actedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      dateStr: new Date().toISOString().slice(0,10),
+    });
+  } catch(e){ /* 조용히 무시 */ }
+}
+
+/* ══════════════════════════════════════════
+   2. 상수 & 유틸
+══════════════════════════════════════════ */
+const CATEGORIES = [
+  {value:"swimming",label:"수영용품"},{value:"shower",label:"샤워용품"},
+  {value:"electronics",label:"전자기기"},{value:"clothing",label:"의류/모자"},
+  {value:"wallet",label:"지갑/가방"},{value:"keys",label:"열쇠/카드"},
+  {value:"glasses",label:"안경/선글라스"},{value:"umbrella",label:"우산"},
+  {value:"jewelry",label:"귀중품/액세서리"},{value:"other",label:"기타"},
+];
+const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c=>[c.value,c.label]));
+const STATUS = { HOLDING:"보관중", COMPLETED:"수령완료", DISPOSED:"폐기처리" };
+
+const AGE_INFO = {
+  0:{label:"",color:"",cardCls:"",badgeCls:""},
+  1:{label:"1개월 경과",color:"text-yellow-700",cardCls:"card-age-1m",badgeCls:"age-1m"},
+  2:{label:"2개월 경과",color:"text-orange-700",cardCls:"card-age-2m",badgeCls:"age-2m"},
+  3:{label:"3개월 경과",color:"text-red-700",  cardCls:"card-age-3m",badgeCls:"age-3m"},
+  4:{label:"4개월 이상",color:"text-pink-700", cardCls:"card-age-4m",badgeCls:"age-4m"},
+};
+
+function formatDate(s){
+  if(!s) return "-";
+  const d=new Date(s);
+  if(isNaN(d)) return s;
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+}
+function today(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function formatPhone(raw){
+  const digits=raw.replace(/\D/g,"");
+  if(digits.startsWith("02")){
+    if(digits.length<=9) return digits.replace(/(\d{2})(\d{3,4})(\d{0,4})/,(_,a,b,c)=>c?`${a}-${b}-${c}`:b?`${a}-${b}`:a);
+    return digits.replace(/(\d{2})(\d{4})(\d{4})/,"$1-$2-$3");
+  } else if(digits.length<=10){
+    return digits.replace(/(\d{3})(\d{3,4})(\d{0,4})/,(_,a,b,c)=>c?`${a}-${b}-${c}`:b?`${a}-${b}`:a);
+  } else {
+    return digits.replace(/(\d{3})(\d{4})(\d{4})/,"$1-$2-$3");
+  }
+}
+function calcElapsedDays(item){
+  const base=item.foundDate||( item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : null );
+  if(!base) return 0;
+  return Math.floor((Date.now()-new Date(base).getTime())/(86400000));
+}
+function getAgeLevel(days){
+  if(days>=120) return 4;
+  if(days>=90)  return 3;
+  if(days>=60)  return 2;
+  if(days>=30)  return 1;
+  return 0;
+}
+function compressImageToBase64(dataUrl,maxW=1200,maxH=1200,quality=0.75){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>maxW||h>maxH){const r=Math.min(maxW/w,maxH/h);w=Math.round(w*r);h=Math.round(h*r);}
+      const canvas=document.createElement("canvas");
+      canvas.width=w;canvas.height=h;
+      canvas.getContext("2d").drawImage(img,0,0,w,h);
+      resolve(canvas.toDataURL("image/jpeg",quality));
+    };
+    img.onerror=reject;
+    img.src=dataUrl;
+  });
+}
+async function generateReceiptNo(fc,dateStr){
+  // yymmdd 형식 (앞 2자리 연도)
+  const d=new Date(dateStr||today());
+  const yy=String(d.getFullYear()).slice(2);
+  const mm=String(d.getMonth()+1).padStart(2,"0");
+  const dd=String(d.getDate()).padStart(2,"0");
+  const dateKey=`${yy}${mm}${dd}`;          // e.g. "260324"
+  const yearKey=String(d.getFullYear());     // e.g. "2026" — 연 단위 카운터
+  const ref=db.collection(counterCol(fc)).doc(yearKey);
+  const seq=await db.runTransaction(async tx=>{
+    const snap=await tx.get(ref);
+    const next=snap.exists?snap.data().seq+1:1;
+    tx.set(ref,{seq:next,year:yearKey},{merge:true});
+    return next;
+  });
+  return `${dateKey}-${String(seq).padStart(3,"0")}`;
+}
+
+/* ══════════════════════════════════════════
+   3. 공통 UI 컴포넌트
+══════════════════════════════════════════ */
+function Icon({name,size=18,className=""}){
+  const el=lucide[name]||lucide["HelpCircle"];
+  const svg=lucide.createElement(el);
+  svg.setAttribute("width",size);svg.setAttribute("height",size);
+  return <span className={className} dangerouslySetInnerHTML={{__html:svg.outerHTML}}/>;
+}
+function Badge({status}){
+  const cls=status===STATUS.COMPLETED?"status-completed":status===STATUS.DISPOSED?"status-disposed":"status-holding";
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${cls}`}>{status}</span>;
+}
+function Spinner(){return(<div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/></div>);}
+function Toast({msg,type}){
+  if(!msg) return null;
+  const bg=type==="error"?"bg-red-600":"bg-gov-800";
+  return(
+    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] ${bg} text-white px-5 py-3 rounded shadow-xl text-sm font-semibold fade-in flex items-center gap-2 max-w-sm`}>
+      <Icon name={type==="error"?"AlertCircle":"CheckCircle"} size={16} className="text-white shrink-0"/>
+      <span>{msg}</span>
+    </div>
+  );
+}
+function InfoRow({label,value,wide,highlight}){
+  return(
+    <div className={wide?"col-span-2":""}>
+      <dt className="text-xs text-slate-500 font-medium mb-0.5">{label}</dt>
+      <dd className={`text-sm font-bold break-words ${highlight?"text-gov-800 text-base tracking-wider":"text-slate-800"}`}>{value||"-"}</dd>
+    </div>
+  );
+}
+function AgeBadge({days,compact}){
+  const lv=getAgeLevel(days);
+  if(lv===0) return null;
+  const info=AGE_INFO[lv];
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-bold ${info.badgeCls}`}>{compact?info.label.replace(" 경과","").replace(" 이상",""):info.label}</span>;
+}
+
+/* ══════════════════════════════════════════
+   4. 게이트 페이지 (시설 코드 입력)
+══════════════════════════════════════════ */
+function GatePage({onEnter}){
+  const [code,setCode]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const inputRef=useRef(null);
+
+  useEffect(()=>{ inputRef.current?.focus(); },[]);
+
+  const handleSubmit=async(e)=>{
+    e?.preventDefault();
+    const trimmed=code.trim().toUpperCase();
+    if(!trimmed){setError("시설 관리 코드를 입력해 주세요.");return;}
+    // 관리자 코드
+    if(trimmed===ADMIN_CODE){
+      window.location.href="lost_and_found_admin.html";
+      return;
+    }
+    setLoading(true);setError("");
+    try {
+      // 시설 코드 검증 (소문자로 Firestore 조회)
+      const snap=await db.collection(FACILITIES_COL).where("accessCode","==",trimmed.toLowerCase()).limit(1).get();
+      if(snap.empty){
+        // 대소문자 무시하고 다시 시도
+        const snap2=await db.collection(FACILITIES_COL).get();
+        const matched=snap2.docs.find(d=>{
+          const data=d.data();
+          const inputLower=trimmed.toLowerCase();
+          // 코드 일치
+          if(data.accessCode?.toUpperCase()===trimmed||data.facilityCode?.toUpperCase()===trimmed) return true;
+          // 별칭 일치 (대소문자 무시)
+          if(Array.isArray(data.alias)&&data.alias.some(a=>a?.toLowerCase()===inputLower)) return true;
+          // 시설명 일치
+          if(data.name?.toLowerCase()===inputLower) return true;
+          return false;
+        });
+        if(!matched){ setError("등록되지 않은 코드입니다. 관리자에게 문의하세요."); setLoading(false); return; }
+        const data=matched.data();
+        const fc=data.facilityCode||matched.id; const fn=data.name||"";
+        localStorage.setItem("facilityCode", fc);
+        localStorage.setItem("facilityName", fn);
+        logVisit(fc, fn);
+        onEnter(fc, fn);
+      } else {
+        const data=snap.docs[0].data();
+        const fc=data.facilityCode||snap.docs[0].id; const fn=data.name||"";
+        localStorage.setItem("facilityCode", fc);
+        localStorage.setItem("facilityName", fn);
+        logVisit(fc, fn);
+        onEnter(fc, fn);
+      }
+    } catch(err){ setError("오류가 발생했습니다: "+err.message); }
+    finally{ setLoading(false); }
+  };
+
+  return(
+    <div className="gate-bg flex flex-col items-center justify-center min-h-screen px-4 py-10">
+      {/* 로고 영역 */}
+      <div className="flex flex-col items-center mb-8 fade-in">
+        <div className="w-16 h-16 bg-gov-800 rounded flex items-center justify-center mb-4 shadow-md border-2 border-brand-500">
+          <Icon name="Package" size={34} className="text-white"/>
+        </div>
+        <h1 className="text-gov-900 text-2xl font-extrabold tracking-tight">분실물 통합 관리 시스템</h1>
+        <p className="text-slate-500 text-sm mt-1">Lost &amp; Found Management System</p>
+      </div>
+
+      {/* 카드 */}
+      <div className="gate-card w-full max-w-sm fade-in overflow-hidden">
+        {/* 상단 네이비 헤더 */}
+        <div className="bg-gov-800 px-8 py-6 text-center">
+          <div className="w-12 h-12 bg-brand-500 rounded flex items-center justify-center mx-auto mb-3">
+            <Icon name="KeyRound" size={22} className="text-white"/>
+          </div>
+          <h2 className="text-lg font-extrabold text-white">시설 코드 입력</h2>
+          <p className="text-gov-300 text-sm mt-1">배정받은 시설 관리 코드를 입력하세요</p>
+        </div>
+        <div className="p-8">
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <input
+              ref={inputRef}
+              type="text"
+              value={code}
+              onChange={e=>{setCode(e.target.value);setError("");}}
+              placeholder="예) 가경, A01"
+              className="w-full border-2 border-slate-200 rounded px-4 py-3 text-center text-lg font-bold tracking-widest focus:outline-none focus:border-gov-700 transition"
+              autoComplete="off"
+            />
+            {error&&<p className="text-red-500 text-xs mt-2 text-center font-semibold">{error}</p>}
+          </div>
+          <button type="submit" disabled={loading}
+            className="w-full py-3 rounded bg-gov-800 text-white font-extrabold text-base hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2 transition">
+            {loading
+              ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"/> 확인 중...</>
+              : <><Icon name="LogIn" size={18} className="text-white"/> 입장하기</>
+            }
+          </button>
+        </form>
+
+          <div className="mt-6 pt-5 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-400">배정받은 시설 코드 또는 별칭을 입력하세요</p>
+          </div>
+        </div>{/* end p-8 */}
+      </div>
+
+      <p className="text-slate-400 text-xs mt-8">© 2026 시설 분실물 통합 관리 시스템</p>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   5. 카메라 모달 (자동촬영 타이머 지원)
+══════════════════════════════════════════ */
+function CameraModal({onCapture,onClose}){
+  const videoRef=useRef(null),canvasRef=useRef(null),streamRef=useRef(null);
+  const timerIdRef=useRef(null);
+  const [facing,setFacing]=useState("environment");
+  const [preview,setPreview]=useState(null);
+  const [camErr,setCamErr]=useState(null);
+  const [devices,setDevices]=useState([]);
+  // 타이머: 0=수동, 3, 5, 10 (초)
+  const [timerSec,setTimerSec]=useState(0);
+  const [countdown,setCountdown]=useState(null); // null=비활성, n=카운트 중
+
+  const TIMER_OPTIONS=[
+    {val:0,label:"수동"},
+    {val:3,label:"3초"},
+    {val:5,label:"5초"},
+    {val:10,label:"10초"},
+  ];
+
+  const startStream=useCallback(async fm=>{
+    if(streamRef.current) streamRef.current.getTracks().forEach(t=>t.stop());
+    try {
+      const stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:fm,width:{ideal:1280},height:{ideal:720}},audio:false
+      });
+      streamRef.current=stream;
+      if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play().catch(()=>{});}
+      setCamErr(null);
+    } catch { setCamErr("카메라 접근 권한이 필요합니다.\n브라우저 설정에서 카메라 권한을 허용해 주세요."); }
+  },[]);
+
+  useEffect(()=>{
+    navigator.mediaDevices?.enumerateDevices().then(d=>setDevices(d.filter(d=>d.kind==="videoinput")));
+    startStream(facing);
+    return()=>{
+      if(streamRef.current) streamRef.current.getTracks().forEach(t=>t.stop());
+      clearInterval(timerIdRef.current);
+    };
+  },[]);
+
+  const doCapture=useCallback(async()=>{
+    const v=videoRef.current,c=canvasRef.current; if(!v||!c) return;
+    c.width=v.videoWidth||640; c.height=v.videoHeight||480;
+    c.getContext("2d").drawImage(v,0,0);
+    const compressed=await compressImageToBase64(c.toDataURL("image/jpeg",0.92));
+    setPreview(compressed);
+    setCountdown(null);
+  },[]);
+
+  const startCapture=()=>{
+    if(timerSec===0){ doCapture(); return; }
+    // 타이머 시작
+    setCountdown(timerSec);
+    let remain=timerSec;
+    timerIdRef.current=setInterval(()=>{
+      remain--;
+      if(remain<=0){
+        clearInterval(timerIdRef.current);
+        setCountdown(0);
+        doCapture();
+      } else {
+        setCountdown(remain);
+      }
+    },1000);
+  };
+
+  const cancelTimer=()=>{
+    clearInterval(timerIdRef.current);
+    setCountdown(null);
+  };
+
+  const retake=()=>{
+    setPreview(null); setCountdown(null); clearInterval(timerIdRef.current);
+    if(videoRef.current&&streamRef.current){videoRef.current.srcObject=streamRef.current;videoRef.current.play().catch(()=>{});}
+  };
+  const flip=()=>{ const n=facing==="environment"?"user":"environment"; setFacing(n); setPreview(null); cancelTimer(); startStream(n); };
+
+  return(
+    <div className="modal-overlay" style={{zIndex:100}} onClick={onClose}>
+      <div className="modal-box p-0 overflow-hidden" onClick={e=>e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-4 py-3 bg-gov-800 text-white header-accent">
+          <span className="font-bold flex items-center gap-2"><Icon name="Camera" size={18} className="text-white"/> 사진 촬영</span>
+          <button onClick={()=>{cancelTimer();onClose();}} className="p-1 hover:bg-gov-700 rounded"><Icon name="X" size={20} className="text-white"/></button>
+        </div>
+        <div className="p-4 space-y-3">
+          {camErr ? (
+            <div className="bg-red-50 border border-red-200 rounded p-5 text-red-700 text-sm text-center">
+              <Icon name="AlertCircle" size={32} className="text-red-400 mx-auto mb-2"/>
+              <p style={{whiteSpace:"pre-line"}}>{camErr}</p>
+            </div>
+          ) : (
+            <>
+              {/* 타이머 선택 바 */}
+              {!preview&&(
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 shrink-0 flex items-center gap-1">
+                    <Icon name="Timer" size={13} className="text-gov-500"/> 자동촬영
+                  </span>
+                  <div className="flex gap-1.5 flex-1">
+                    {TIMER_OPTIONS.map(opt=>(
+                      <button key={opt.val} onClick={()=>{if(countdown!==null)return; setTimerSec(opt.val);}}
+                        disabled={countdown!==null}
+                        className={`flex-1 py-1.5 text-xs rounded border font-bold transition
+                          ${timerSec===opt.val
+                            ?"bg-gov-800 text-white border-gov-800"
+                            :"bg-white text-slate-600 border-slate-200 hover:border-gov-400 disabled:opacity-40"}`}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{display:preview?"none":"block"}} className="space-y-3 relative">
+                {/* 카메라 뷰 */}
+                <div className="relative">
+                  <video ref={videoRef} autoPlay playsInline muted
+                    className="camera-preview mx-auto block rounded" style={{maxHeight:"300px",objectFit:"cover"}}/>
+                  {/* 카운트다운 오버레이 */}
+                  {countdown!==null&&countdown>0&&(
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded">
+                      <span className="timer-count text-white font-extrabold"
+                        style={{fontSize:"80px",lineHeight:1,textShadow:"0 2px 12px rgba(0,0,0,0.8)"}}>
+                        {countdown}
+                      </span>
+                    </div>
+                  )}
+                  {countdown===0&&(
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/30 rounded">
+                      <Icon name="Camera" size={48} className="text-white"/>
+                    </div>
+                  )}
+                </div>
+                <canvas ref={canvasRef} className="hidden"/>
+                <div className="flex gap-2">
+                  {devices.length>1&&(
+                    <button onClick={flip} disabled={countdown!==null}
+                      className="px-4 py-2.5 rounded border border-slate-300 text-slate-600 text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40">
+                      <Icon name="RefreshCw" size={14}/> 전환
+                    </button>
+                  )}
+                  {countdown!==null ? (
+                    <button onClick={cancelTimer}
+                      className="flex-1 py-3 rounded bg-red-500 text-white font-extrabold text-base hover:bg-red-600 flex items-center justify-center gap-2">
+                      <Icon name="X" size={20} className="text-white"/> 취소
+                    </button>
+                  ) : (
+                    <button onClick={startCapture}
+                      className="flex-1 py-3 rounded bg-gov-800 text-white font-extrabold text-base hover:bg-gov-900 active:scale-95 flex items-center justify-center gap-2 shadow-lg transition">
+                      {timerSec>0
+                        ? <><Icon name="Timer" size={20} className="text-brand-300"/> {timerSec}초 후 촬영</>
+                        : <><Icon name="Camera" size={22} className="text-white"/> 촬영하기</>}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {preview&&(
+                <div className="space-y-3 fade-in">
+                  <img src={preview} alt="미리보기" className="w-full rounded object-contain max-h-72 bg-slate-900"/>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={retake} className="py-2.5 rounded border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 flex items-center justify-center gap-2">
+                      <Icon name="RotateCcw" size={15}/> 다시 찍기
+                    </button>
+                    <button onClick={()=>onCapture(preview)} className="py-2.5 rounded bg-gov-800 text-white font-bold text-sm hover:bg-gov-900 flex items-center justify-center gap-2">
+                      <Icon name="Check" size={15} className="text-white"/> 이 사진 사용
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   6. 등록 모달 (사진 최대 3장)
+══════════════════════════════════════════ */
+function RegisterModal({facilityCode,facilityName,onClose,onSaved,showToast}){
+  const [form,setForm]=useState({itemName:"",location:"",category:"other",foundDate:today(),registrar:"",memo:""});
+  const [imgUrls,setImgUrls]=useState([]); // 최대 3장
+  const [showCam,setShowCam]=useState(false);
+  const [uploading,setUploading]=useState(false);
+  const fileRef=useRef(null);
+  const refItemName=useRef(null), refLocation=useRef(null), refRegistrar=useRef(null), refMemo=useRef(null);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const focusNext=(nr)=>(e)=>{ if(e.key==="Enter"){e.preventDefault();nr?.current?nr.current.focus():handleSubmit();} };
+
+  const MAX_PHOTOS=3;
+
+  const addPhoto=async(dataUrl)=>{
+    if(imgUrls.length>=MAX_PHOTOS){showToast(`사진은 최대 ${MAX_PHOTOS}장까지 등록 가능합니다.`,"error");return;}
+    const compressed=dataUrl.startsWith("data:image/jpeg")?dataUrl:await compressImageToBase64(dataUrl);
+    setImgUrls(p=>[...p,compressed]);
+  };
+
+  const removePhoto=(idx)=>setImgUrls(p=>p.filter((_,i)=>i!==idx));
+
+  const handleFile=e=>{
+    const files=Array.from(e.target.files||[]);
+    if(!files.length) return;
+    const remaining=MAX_PHOTOS-imgUrls.length;
+    files.slice(0,remaining).forEach(f=>{
+      const r=new FileReader();
+      r.onload=async ev=>{ await addPhoto(ev.target.result); };
+      r.readAsDataURL(f);
+    });
+    if(files.length>remaining) showToast(`최대 ${MAX_PHOTOS}장까지 추가 가능합니다. ${remaining}장만 추가됩니다.`,"error");
+    e.target.value="";
+  };
+
+  const handleSubmit=async()=>{
+    if(!form.itemName.trim()){showToast("물품명을 입력해 주세요.","error");return;}
+    if(!form.location.trim()){showToast("습득 장소를 입력해 주세요.","error");return;}
+    if(!form.registrar.trim()){showToast("등록자를 입력해 주세요.","error");return;}
+    setUploading(true);
+    try {
+      const receiptNo=await generateReceiptNo(facilityCode, form.foundDate);
+      await db.collection(facilityCol(facilityCode)).add({
+        receiptNo,facilityCode,
+        itemName:form.itemName.trim(),location:form.location.trim(),
+        category:form.category,foundDate:form.foundDate,registrar:form.registrar.trim(),
+        memo:form.memo.trim(),
+        imageUrl:imgUrls[0]||"",        // 대표사진 (하위 호환)
+        imageUrls:imgUrls,              // 최대 3장 배열
+        status:STATUS.HOLDING,
+        createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+        receivedDate:"",receiverName:"",receiverContact:"",handlerName:"",
+        disposedDate:"",disposedBy:"",disposedReason:"",
+      });
+      // 활동 로그 기록
+      logActivity("register", facilityCode, facilityName||facilityCode, {
+        receiptNo, itemName:form.itemName.trim(), location:form.location.trim(),
+        registrar:form.registrar.trim(), foundDate:form.foundDate,
+      });
+      showToast(`접수번호 ${receiptNo} 등록 완료 ✅`); onSaved();
+    } catch(err){showToast("등록 오류: "+err.message,"error");}
+    finally{setUploading(false);}
+  };
+
+  return(
+    <>
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-box" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-3 border-b-2 border-brand-500 sticky top-0 bg-gov-800 z-10">
+            <h2 className="font-extrabold text-white flex items-center gap-2"><Icon name="PlusCircle" size={18} className="text-brand-400"/> 분실물 신규 등록</h2>
+            <button onClick={onClose} className="p-1.5 hover:bg-gov-700 rounded text-white/70"><Icon name="X" size={18}/></button>
+          </div>
+          <div className="px-5 py-2.5 bg-gov-50 border-b border-gov-100">
+            <p className="text-xs text-gov-700 font-semibold flex items-center gap-1.5"><Icon name="Hash" size={13} className="text-gov-500"/> 등록 완료 시 <span className="font-extrabold bg-gov-200 px-1.5 py-0.5 rounded text-gov-900">YYMMDD-NNN</span> 접수번호 자동 발급 (연 단위 일련번호)</p>
+          </div>
+          <div className="p-5 space-y-4">
+            {/* ── 사진 (최대 3장) ── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-bold text-slate-700">물품 사진 <span className="text-slate-400 font-normal">(선택, 최대 3장)</span></label>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${imgUrls.length>=MAX_PHOTOS?"bg-brand-100 text-brand-700":"bg-slate-100 text-slate-500"}`}>
+                  {imgUrls.length}/{MAX_PHOTOS}장
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {/* 등록된 사진 슬롯 */}
+                {imgUrls.map((url,idx)=>(
+                  <div key={idx} className={`photo-thumb ${idx===0?"primary":""}`}>
+                    <img src={url} alt={`사진${idx+1}`} className="w-full h-full object-cover"/>
+                    {idx===0&&<span className="absolute bottom-0 left-0 right-0 bg-brand-500/90 text-white text-center text-[10px] font-bold py-0.5">대표사진</span>}
+                    <button className="del-btn" onClick={()=>removePhoto(idx)}>✕</button>
+                  </div>
+                ))}
+
+                {/* 추가 슬롯 */}
+                {imgUrls.length<MAX_PHOTOS&&(
+                  <>
+                    <button onClick={()=>setShowCam(true)} className="photo-add-slot">
+                      <Icon name="Camera" size={22} className="text-gov-500"/>
+                      <span className="text-xs text-gov-600 font-semibold">촬영</span>
+                    </button>
+                    {imgUrls.length<MAX_PHOTOS-1&&(
+                      <button onClick={()=>fileRef.current?.click()} className="photo-add-slot">
+                        <Icon name="ImagePlus" size={22} className="text-slate-400"/>
+                        <span className="text-xs text-slate-500 font-semibold">갤러리</span>
+                      </button>
+                    )}
+                  </>
+                )}
+                <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFile}/>
+              </div>
+
+              {imgUrls.length>0&&(
+                <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
+                  <Icon name="Info" size={11} className="text-brand-500"/>
+                  첫 번째 사진이 목록/카드에 표시되는 대표사진입니다
+                </p>
+              )}
+            </div>
+
+            {/* 물품명 */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">물품명 <span className="text-red-500">*</span></label>
+              <input ref={refItemName} type="text" value={form.itemName} onChange={e=>set("itemName",e.target.value)} onKeyDown={focusNext(refLocation)} placeholder="예) 검정 우산, 갤럭시 버즈, 갈색 지갑" className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm field-input"/>
+            </div>
+            {/* 카테고리 */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">카테고리</label>
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+                {CATEGORIES.map(c=>(
+                  <button key={c.value} onClick={()=>set("category",c.value)}
+                    className={`py-2 text-xs rounded border font-semibold transition ${form.category===c.value?"border-gov-800 bg-gov-800 text-white":"border-slate-200 bg-white text-slate-600 hover:border-gov-400"}`}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* 습득 장소 */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">습득 장소 <span className="text-red-500">*</span></label>
+              <input ref={refLocation} type="text" value={form.location} onChange={e=>set("location",e.target.value)} onKeyDown={focusNext(refRegistrar)} placeholder="예) 3층 회의실, 1층 로비" className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm field-input"/>
+            </div>
+            {/* 습득일 & 등록자 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">습득 일자</label>
+                <input type="date" value={form.foundDate} onChange={e=>set("foundDate",e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2.5 text-sm field-input"/>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">등록자 <span className="text-red-500">*</span></label>
+                <input ref={refRegistrar} type="text" value={form.registrar} onChange={e=>set("registrar",e.target.value)} onKeyDown={focusNext(refMemo)} placeholder="성함 또는 부서명" className="w-full border border-slate-300 rounded px-3 py-2.5 text-sm field-input"/>
+              </div>
+            </div>
+            {/* 메모 */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">메모 <span className="text-slate-400 font-normal">(선택)</span></label>
+              <textarea ref={refMemo} value={form.memo} rows={2} onChange={e=>set("memo",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSubmit();}}} placeholder="색상, 브랜드, 특이사항 등 (엔터로 등록 완료)" className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm field-input resize-none"/>
+            </div>
+          </div>
+          <div className="px-5 py-4 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+            <button onClick={onClose} className="py-2.5 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+            <button onClick={handleSubmit} disabled={uploading} className="py-2.5 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2">
+              {uploading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 저장 중...</>:<><Icon name="Save" size={16} className="text-white"/> 등록 완료</>}
+            </button>
+          </div>
+        </div>
+      </div>
+      {showCam&&<CameraModal onCapture={async u=>{await addPhoto(u);setShowCam(false);}} onClose={()=>setShowCam(false)}/>}
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════
+   7. 상세 모달
+══════════════════════════════════════════ */
+function DetailModal({item,facilityCode,onClose,onUpdated,onDeleted,showToast}){
+  const [statusEdit,setStatusEdit]=useState(false);
+  const [disposeEdit,setDisposeEdit]=useState(false);
+  const [form,setForm]=useState({receivedDate:item.receivedDate||today(),receiverName:item.receiverName||"",receiverContact:item.receiverContact||"",handlerName:item.handlerName||""});
+  const [dispForm,setDispForm]=useState({disposedBy:"",disposedReason:""});
+  const [saving,setSaving]=useState(false);
+  const [confirmDel,setConfirmDel]=useState(false);
+  const [deleting,setDeleting]=useState(false);
+  const [editMode,setEditMode]=useState(false);
+  const [editForm,setEditForm]=useState({itemName:item.itemName||"",category:item.category||"other",location:item.location||"",foundDate:item.foundDate||today(),registrar:item.registrar||"",memo:item.memo||""});
+  const [editSaving,setEditSaving]=useState(false);
+
+  const refHandler=useRef(null),refRecvName=useRef(null),refRecvContact=useRef(null);
+  const refDisposeBy=useRef(null),refDisposeReason=useRef(null);
+  const refEditItemName=useRef(null),refEditLocation=useRef(null),refEditRegistrar=useRef(null),refEditMemo=useRef(null);
+
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const setD=(k,v)=>setDispForm(p=>({...p,[k]:v}));
+  const setE=(k,v)=>setEditForm(p=>({...p,[k]:v}));
+  const goNext=(nr,fn)=>(e)=>{if(e.key==="Enter"){e.preventDefault();nr?nr.current?.focus():fn?.();}};
+  const goEdit=(nr,fn)=>(e)=>{if(e.key==="Enter"){e.preventDefault();nr?nr.current?.focus():fn?.();}};
+
+  const COLL=facilityCol(facilityCode);
+
+  const handleStatusChange=async()=>{
+    if(!form.receiverName.trim()){showToast("수령인 성함을 입력해 주세요.","error");return;}
+    if(!form.receiverContact.trim()){showToast("수령인 연락처를 입력해 주세요.","error");return;}
+    if(!form.handlerName.trim()){showToast("반출 담당자를 입력해 주세요.","error");return;}
+    setSaving(true);
+    try {
+      await db.collection(COLL).doc(item.id).update({status:STATUS.COMPLETED,receivedDate:form.receivedDate,receiverName:form.receiverName.trim(),receiverContact:form.receiverContact.trim(),handlerName:form.handlerName.trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      showToast("수령 완료 처리되었습니다."); onUpdated();
+    } catch(err){showToast("오류: "+err.message,"error");}
+    finally{setSaving(false);}
+  };
+  const handleDispose=async()=>{
+    if(!dispForm.disposedBy.trim()){showToast("폐기 처리자를 입력해 주세요.","error");return;}
+    setSaving(true);
+    try {
+      await db.collection(COLL).doc(item.id).update({status:STATUS.DISPOSED,disposedDate:today(),disposedBy:dispForm.disposedBy.trim(),disposedReason:dispForm.disposedReason.trim()||"장기 미수령 폐기",updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      showToast("폐기 처리 완료."); onUpdated();
+    } catch(err){showToast("오류: "+err.message,"error");}
+    finally{setSaving(false);}
+  };
+  const handleDelete=async()=>{
+    setDeleting(true);
+    try { await db.collection(COLL).doc(item.id).delete(); showToast("삭제되었습니다."); onDeleted(); }
+    catch(err){showToast("삭제 오류: "+err.message,"error");}
+    finally{setDeleting(false);}
+  };
+  const handleEditSave=async()=>{
+    if(!editForm.itemName.trim()){showToast("물품명을 입력해 주세요.","error");return;}
+    if(!editForm.location.trim()){showToast("습득 장소를 입력해 주세요.","error");return;}
+    if(!editForm.registrar.trim()){showToast("등록자를 입력해 주세요.","error");return;}
+    setEditSaving(true);
+    try {
+      await db.collection(COLL).doc(item.id).update({itemName:editForm.itemName.trim(),category:editForm.category,location:editForm.location.trim(),foundDate:editForm.foundDate,registrar:editForm.registrar.trim(),memo:editForm.memo.trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      showToast("기본 정보가 수정되었습니다. ✅"); setEditMode(false); onUpdated();
+    } catch(err){showToast("수정 오류: "+err.message,"error");}
+    finally{setEditSaving(false);}
+  };
+
+  const isCompleted=item.status===STATUS.COMPLETED;
+  const isDisposed=item.status===STATUS.DISPOSED;
+  const isHolding=item.status===STATUS.HOLDING;
+  const elapsedDays=calcElapsedDays(item);
+  const ageLv=getAgeLevel(elapsedDays);
+
+  return(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 py-3 border-b-2 border-brand-500 sticky top-0 bg-gov-800 z-10">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <h2 className="font-extrabold text-white shrink-0">분실물 상세</h2>
+            <Badge status={item.status}/>
+            {isHolding&&ageLv>0&&<AgeBadge days={elapsedDays}/>}
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gov-700 rounded text-white/70 shrink-0"><Icon name="X" size={18}/></button>
+        </div>
+        {/* 접수번호 배너 */}
+        {item.receiptNo&&(
+          <div className="mx-5 mt-4 bg-gov-800 border-l-4 border-brand-500 rounded px-5 py-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 bg-brand-500 rounded flex items-center justify-center shrink-0"><Icon name="Hash" size={20} className="text-white"/></div>
+              <div><p className="text-gov-300 text-xs">접수번호</p><p className="text-white text-xl font-extrabold tracking-widest">{item.receiptNo}</p></div>
+            </div>
+            <button onClick={()=>{navigator.clipboard?.writeText(item.receiptNo);showToast("복사되었습니다.");}} className="px-3 py-2 bg-gov-700 hover:bg-gov-600 rounded text-xs font-bold text-white flex items-center gap-1.5"><Icon name="Copy" size={13} className="text-white"/> 복사</button>
+          </div>
+        )}
+        {/* 경과 배너 */}
+        {isHolding&&ageLv>0&&(
+          <div className={`mx-5 mt-3 rounded px-4 py-3 flex items-center gap-3 border ${ageLv===4?"bg-pink-50 border-pink-300":ageLv===3?"bg-red-50 border-red-300":ageLv===2?"bg-orange-50 border-orange-300":"bg-yellow-50 border-yellow-300"}`}>
+            <Icon name="Clock" size={18} className={ageLv>=3?"text-red-500":ageLv===2?"text-orange-500":"text-yellow-600"}/>
+            <div>
+              <p className={`text-xs font-extrabold ${AGE_INFO[ageLv].color}`}>보관 {elapsedDays}일 경과 — {AGE_INFO[ageLv].label}</p>
+              {ageLv>=3&&<p className="text-xs text-slate-500 mt-0.5">장기 미수령 물품입니다. 폐기 처리를 검토해 주세요.</p>}
+            </div>
+          </div>
+        )}
+        {/* 폐기 정보 */}
+        {isDisposed&&(
+          <div className="mx-5 mt-3 bg-slate-50 border border-slate-300 rounded px-4 py-3 flex items-start gap-3">
+            <Icon name="Trash2" size={18} className="text-gray-500 shrink-0 mt-0.5"/>
+            <div className="space-y-1">
+              <p className="text-xs font-extrabold text-gray-700">폐기 처리 완료</p>
+              <p className="text-xs text-gray-500">처리일: {formatDate(item.disposedDate)} · 처리자: {item.disposedBy||"-"}</p>
+              {item.disposedReason&&<p className="text-xs text-gray-500">사유: {item.disposedReason}</p>}
+            </div>
+          </div>
+        )}
+        <div className="p-5 space-y-4">
+          {/* ── 이미지 (최대 3장, 대표사진 + 추가사진) ── */}
+          {(()=>{
+            // imageUrls 배열 우선, 없으면 imageUrl 단일 사용 (하위 호환)
+            const urls=(item.imageUrls&&item.imageUrls.length>0)
+              ? item.imageUrls
+              : (item.imageUrl?[item.imageUrl]:[]);
+            if(urls.length===0) return(
+              <div className="w-full h-28 rounded border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2">
+                <Icon name="Image" size={28} className="text-slate-300"/>
+                <span className="text-sm text-slate-400">등록된 사진 없음</span>
+              </div>
+            );
+            return(
+              <div className="space-y-2">
+                {/* 대표사진 크게 */}
+                <div className="relative rounded border border-slate-200 bg-slate-900 overflow-hidden">
+                  <img src={urls[0]} alt={item.itemName} className="w-full max-h-64 object-contain mx-auto block"/>
+                  {urls.length>1&&<span className="absolute top-2 left-2 bg-brand-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">대표사진</span>}
+                </div>
+                {/* 추가사진 썸네일 */}
+                {urls.length>1&&(
+                  <div className="grid grid-cols-3 gap-2">
+                    {urls.map((u,i)=>(
+                      <div key={i} className={`photo-thumb ${i===0?"primary":""}`} style={{aspectRatio:"1"}}>
+                        <img src={u} alt={`사진${i+1}`} className="w-full h-full object-cover"/>
+                        {i===0&&<span className="absolute bottom-0 left-0 right-0 bg-brand-500/80 text-white text-center text-[10px] font-bold py-0.5">대표</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-slate-400 flex items-center gap-1">
+                  <Icon name="Image" size={11}/> {urls.length}장 등록됨
+                </p>
+              </div>
+            );
+          })()}
+          {/* 기본 정보 (수정 가능) */}
+          <div className="bg-slate-50 rounded border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-gov-50">
+              <span className="text-xs font-extrabold text-gov-700 uppercase tracking-wide flex items-center gap-1.5"><Icon name="ClipboardList" size={13} className="text-gov-500"/> 기본 정보</span>
+              {!editMode?(
+                <button onClick={()=>setEditMode(true)} className="flex items-center gap-1 px-2.5 py-1 rounded border border-gov-300 text-gov-800 text-xs font-bold hover:bg-gov-100 transition"><Icon name="Pencil" size={12} className="text-gov-700"/> 수정</button>
+              ):(
+                <div className="flex items-center gap-1.5">
+                  <button onClick={()=>setEditMode(false)} className="px-2.5 py-1 rounded border border-slate-300 text-slate-500 text-xs font-bold hover:bg-slate-100">취소</button>
+                  <button onClick={handleEditSave} disabled={editSaving} className="flex items-center gap-1 px-2.5 py-1 rounded bg-gov-800 text-white text-xs font-bold hover:bg-gov-900 disabled:opacity-60">
+                    {editSaving?<><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"/> 저장...</>:<><Icon name="Save" size={12} className="text-white"/> 저장</>}
+                  </button>
+                </div>
+              )}
+            </div>
+            {!editMode?(
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 p-4">
+                <InfoRow label="물품명" value={item.itemName} wide/>
+                <InfoRow label="카테고리" value={CATEGORY_MAP[item.category]||item.category}/>
+                <InfoRow label="습득 장소" value={item.location}/>
+                <InfoRow label="습득 일자" value={formatDate(item.foundDate)}/>
+                <InfoRow label="등록자" value={item.registrar}/>
+                <InfoRow label="등록 일시" value={item.createdAt?.toDate?formatDate(item.createdAt.toDate().toISOString().slice(0,10)):"-"}/>
+                {item.memo&&<InfoRow label="메모" value={item.memo} wide/>}
+              </dl>
+            ):(
+              <div className="p-4 space-y-3 fade-in">
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">물품명 <span className="text-red-500">*</span></label>
+                  <input ref={refEditItemName} type="text" value={editForm.itemName} onChange={e=>setE("itemName",e.target.value)} onKeyDown={goEdit(refEditLocation)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">카테고리</label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {CATEGORIES.map(c=><button key={c.value} onClick={()=>setE("category",c.value)} className={`py-1.5 text-xs rounded border font-semibold ${editForm.category===c.value?"border-gov-800 bg-gov-800 text-white":"border-slate-200 bg-white text-slate-600 hover:border-gov-400"}`}>{c.label}</button>)}
+                  </div></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">습득 장소 <span className="text-red-500">*</span></label>
+                  <input ref={refEditLocation} type="text" value={editForm.location} onChange={e=>setE("location",e.target.value)} onKeyDown={goEdit(refEditRegistrar)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">습득 일자</label>
+                    <input type="date" value={editForm.foundDate} onChange={e=>setE("foundDate",e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">등록자 <span className="text-red-500">*</span></label>
+                    <input ref={refEditRegistrar} type="text" value={editForm.registrar} onChange={e=>setE("registrar",e.target.value)} onKeyDown={goEdit(refEditMemo)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                </div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">메모</label>
+                  <textarea ref={refEditMemo} value={editForm.memo} rows={2} onChange={e=>setE("memo",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleEditSave();}}} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input resize-none"/></div>
+                <button onClick={handleEditSave} disabled={editSaving} className="w-full py-2.5 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2">
+                  {editSaving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 저장 중...</>:<><Icon name="Save" size={15} className="text-white"/> 수정 내용 저장</>}
+                </button>
+              </div>
+            )}
+          </div>
+          {/* 수령 완료 정보 */}
+          {isCompleted&&(
+            <div className="bg-gov-50 border border-gov-200 rounded p-4">
+              <p className="text-sm font-extrabold text-gov-800 flex items-center gap-1.5 mb-2"><Icon name="CheckCircle" size={16} className="text-emerald-600"/> 수령 완료 정보</p>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <InfoRow label="수령 일자" value={formatDate(item.receivedDate)}/>
+                <InfoRow label="반출 담당자" value={item.handlerName}/>
+                <InfoRow label="수령인" value={item.receiverName}/>
+                <InfoRow label="수령인 연락처" value={item.receiverContact}/>
+              </dl>
+            </div>
+          )}
+          {/* 수령 완료로 변경 */}
+          {isHolding&&(
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <button onClick={()=>setStatusEdit(p=>!p)} className="w-full px-4 py-3.5 flex items-center justify-between text-sm font-bold text-gov-800 bg-gov-50 hover:bg-gov-100 border-l-4 border-gov-500">
+                <span className="flex items-center gap-2"><Icon name="ArrowRightCircle" size={17} className="text-gov-600"/> 수령 완료로 상태 변경</span>
+                <Icon name={statusEdit?"ChevronUp":"ChevronDown"} size={17}/>
+              </button>
+              {statusEdit&&(
+                <div className="p-4 space-y-3 border-t border-slate-100">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1.5">수령 일자 <span className="text-red-500">*</span></label>
+                      <input type="date" value={form.receivedDate} onChange={e=>set("receivedDate",e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1.5">반출 담당자 <span className="text-red-500">*</span></label>
+                      <input ref={refHandler} type="text" value={form.handlerName} onChange={e=>set("handlerName",e.target.value)} onKeyDown={goNext(refRecvName)} placeholder="담당자 성함" className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  </div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1.5">수령인 성함 <span className="text-red-500">*</span></label>
+                    <input ref={refRecvName} type="text" value={form.receiverName} onChange={e=>set("receiverName",e.target.value)} onKeyDown={goNext(refRecvContact)} placeholder="수령인 실명" className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1.5">수령인 연락처 <span className="text-red-500">*</span></label>
+                    <input ref={refRecvContact} type="tel" value={form.receiverContact} onChange={e=>set("receiverContact",formatPhone(e.target.value))} onKeyDown={goNext(null,handleStatusChange)} placeholder="예) 01045678900 → 010-4567-8900" maxLength={13} className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  <button onClick={handleStatusChange} disabled={saving} className="w-full py-2.5 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2">
+                    {saving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 처리 중...</>:<><Icon name="CheckCircle" size={16} className="text-white"/> 수령 완료 처리</>}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {/* 폐기 처리 */}
+          {isHolding&&(
+            <div className="border border-red-200 rounded overflow-hidden">
+              <button onClick={()=>setDisposeEdit(p=>!p)} className="w-full px-4 py-3.5 flex items-center justify-between text-sm font-bold text-red-700 bg-red-50 hover:bg-red-100 border-l-4 border-red-500">
+                <span className="flex items-center gap-2">
+                  <Icon name="Trash2" size={17} className="text-red-500"/> 폐기 처리
+                  <span className="has-tooltip" style={{position:'relative',display:'inline-flex',alignItems:'center'}}>
+                    <Icon name="Info" size={14} className="text-red-300 hover:text-red-500 cursor-help"/>
+                    <span className="tooltip-box" style={{bottom:'calc(100% + 8px)',left:'50%',transform:'translateX(-50%)',minWidth:'200px'}}>📦 <strong>이력 보존</strong><br/>상태만 변경, DB에 기록 남음</span>
+                  </span>
+                </span>
+                <Icon name={disposeEdit?"ChevronUp":"ChevronDown"} size={17}/>
+              </button>
+              {disposeEdit&&(
+                <div className="p-4 space-y-3 border-t border-red-100 bg-white">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1.5">폐기 처리자 <span className="text-red-500">*</span></label>
+                    <input ref={refDisposeBy} type="text" value={dispForm.disposedBy} onChange={e=>setD("disposedBy",e.target.value)} onKeyDown={goNext(refDisposeReason)} placeholder="처리자 성함 또는 부서명" className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1.5">폐기 사유 <span className="text-slate-400 font-normal">(선택)</span></label>
+                    <input ref={refDisposeReason} type="text" value={dispForm.disposedReason} onChange={e=>setD("disposedReason",e.target.value)} onKeyDown={goNext(null,handleDispose)} placeholder="기본값: 장기 미수령 폐기" className="w-full border border-slate-300 rounded px-3 py-2 text-sm field-input"/></div>
+                  <button onClick={handleDispose} disabled={saving} className="w-full py-2.5 rounded bg-red-600 text-white font-extrabold text-sm hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                    {saving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 처리 중...</>:<><Icon name="Trash2" size={16} className="text-white"/> 폐기 처리 확정</>}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* 푸터 */}
+        <div className="px-5 py-3 border-t border-slate-200 flex items-center gap-3 sticky bottom-0 bg-white">
+          {!confirmDel?(
+            <span className="has-tooltip tooltip-left" style={{position:'relative',display:'inline-flex'}}>
+              <button onClick={()=>setConfirmDel(true)} className="flex items-center gap-1.5 px-3 py-2 rounded border border-red-200 text-red-600 hover:bg-red-50 font-semibold text-sm">
+                <Icon name="Trash2" size={14}/> 완전 삭제
+              </button>
+              <span className="tooltip-box">🗑️ <strong>DB 영구 제거</strong><br/>복구 불가, 신중하게 사용하세요.</span>
+            </span>
+          ):(
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-red-600 font-bold">정말 삭제하시겠습니까?</span>
+              <button onClick={handleDelete} disabled={deleting} className="px-3 py-1.5 rounded bg-red-600 text-white text-sm font-bold hover:bg-red-700">확인</button>
+              <button onClick={()=>setConfirmDel(false)} className="px-3 py-1.5 rounded border border-slate-300 text-slate-600 text-sm hover:bg-slate-50">취소</button>
+            </div>
+          )}
+          <button onClick={onClose} className="ml-auto px-4 py-2 rounded border border-gov-300 text-gov-700 font-bold text-sm hover:bg-gov-50">닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   8. 갤러리 카드 / 리스트 행
+══════════════════════════════════════════ */
+function ItemCard({item,onClick,selectMode,selected,onSelect}){
+  const done=item.status===STATUS.COMPLETED, disposed=item.status===STATUS.DISPOSED;
+  const days=calcElapsedDays(item), ageLv=item.status===STATUS.HOLDING?getAgeLevel(days):0;
+  const ageInfo=AGE_INFO[ageLv];
+  // 대표사진: imageUrls 배열 우선, 없으면 imageUrl 단일 (하위 호환)
+  const thumb=(item.imageUrls&&item.imageUrls.length>0)?item.imageUrls[0]:item.imageUrl||null;
+  const extraCount=(item.imageUrls&&item.imageUrls.length>1)?item.imageUrls.length-1:0;
+  return(
+    <div onClick={()=>selectMode?onSelect(item.id):onClick(item)}
+      className={`bg-white rounded border-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer overflow-hidden fade-in group
+        ${selected?"item-selected border-brand-400":ageLv>0?ageInfo.cardCls:"border-slate-200"}
+        ${selectMode?"select-mode-active":""}`}>
+      <div className="relative h-32 bg-slate-100">
+        {thumb
+          ?<img src={thumb} alt={item.itemName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy"/>
+          :<div className="w-full h-full flex flex-col items-center justify-center gap-1"><Icon name="Image" size={24} className="text-slate-200"/><span className="text-xs text-slate-300">사진 없음</span></div>
+        }
+        {done&&<div className="absolute inset-0 bg-black/25 flex items-center justify-center"><span className="bg-emerald-500 text-white text-xs font-extrabold px-2 py-0.5 rounded-full">수령완료</span></div>}
+        {disposed&&<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="bg-gray-600 text-white text-xs font-extrabold px-2 py-0.5 rounded-full">폐기처리</span></div>}
+        {selectMode&&(
+          <div className={`absolute top-2 right-2 w-5 h-5 rounded-full border-2 flex items-center justify-center shadow ${selected?"bg-red-500 border-red-500":"bg-white border-slate-300"}`}>
+            {selected&&<Icon name="Check" size={11} className="text-white"/>}
+          </div>
+        )}
+        {ageLv>0&&!done&&!disposed&&(
+          <div className="absolute top-2 left-2"><span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${ageInfo.badgeCls}`}>{ageInfo.label}</span></div>
+        )}
+        {/* 추가사진 개수 뱃지 */}
+        {extraCount>0&&!selectMode&&(
+          <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+            <Icon name="Images" size={10} className="text-white"/> +{extraCount}
+          </div>
+        )}
+      </div>
+      <div className="p-2.5">
+        {item.receiptNo&&<p className="text-xs text-gov-800 font-bold mb-0.5 truncate">{item.receiptNo}</p>}
+        <p className="text-sm font-bold text-slate-800 truncate">{item.itemName}</p>
+        <p className="text-xs text-slate-500 truncate mt-0.5">{item.location}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{formatDate(item.foundDate)}</p>
+      </div>
+    </div>
+  );
+}
+function ItemRow({item,onClick,selectMode,selected,onSelect}){
+  const done=item.status===STATUS.COMPLETED, disposed=item.status===STATUS.DISPOSED;
+  const days=calcElapsedDays(item), ageLv=item.status===STATUS.HOLDING?getAgeLevel(days):0;
+  const rowCls=ageLv===4?"row-age-4m":ageLv===3?"row-age-3m":ageLv===2?"row-age-2m":ageLv===1?"row-age-1m":"";
+  return(
+    <tr onClick={()=>selectMode?onSelect(item.id):onClick(item)}
+      className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition ${rowCls} ${selected?"item-selected":""} ${selectMode?"select-mode-active":""}`}>
+      <td className="py-2 px-3">
+        {selectMode?(
+          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${selected?"bg-red-500 border-red-500":"border-slate-300"}`}>{selected&&<Icon name="Check" size={11} className="text-white"/>}</div>
+        ):(()=>{
+          const thumb=(item.imageUrls&&item.imageUrls.length>0)?item.imageUrls[0]:item.imageUrl||null;
+          return thumb
+            ?<img src={thumb} alt="" className="w-10 h-10 rounded object-cover border border-slate-200" loading="lazy"/>
+            :<div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center"><Icon name="Image" size={16} className="text-slate-300"/></div>;
+        })()}
+      </td>
+      <td className="py-2 px-2 hidden sm:table-cell"><span className="text-xs font-bold text-gov-800">{item.receiptNo||"-"}</span></td>
+      <td className="py-2 px-2"><span className="text-sm font-bold text-slate-800">{item.itemName}</span>{ageLv>0&&!done&&!disposed&&<AgeBadge days={days} compact/>}</td>
+      <td className="py-2 px-2 hidden md:table-cell text-xs text-slate-500">{item.location}</td>
+      <td className="py-2 px-2 hidden lg:table-cell text-xs text-slate-500">{formatDate(item.foundDate)}</td>
+      <td className="py-2 px-2 hidden xl:table-cell text-xs text-slate-500">{item.registrar}</td>
+      <td className="py-2 px-3"><Badge status={item.status}/></td>
+    </tr>
+  );
+}
+
+/* ══════════════════════════════════════════
+   9. 일괄 폐기 / 삭제 모달
+══════════════════════════════════════════ */
+function DisposalModal({items,onClose,onDone,showToast,facilityCode}){
+  const [reason,setReason]=useState(""),[handler,setHandler]=useState(""),[doing,setDoing]=useState(false);
+  const refHandler=useRef(null),refReason=useRef(null);
+  const goNext=(nr,fn)=>(e)=>{if(e.key==="Enter"){e.preventDefault();nr?nr.current?.focus():fn?.();}};
+  const handleDispose=async()=>{
+    if(!handler.trim()){showToast("폐기 처리자를 입력해 주세요.","error");return;}
+    setDoing(true);
+    try {
+      const batch=db.batch();const now=today();
+      items.forEach(item=>batch.update(db.collection(facilityCol(facilityCode)).doc(item.id),{status:STATUS.DISPOSED,disposedDate:now,disposedBy:handler.trim(),disposedReason:reason.trim()||"장기 미수령 폐기",updatedAt:firebase.firestore.FieldValue.serverTimestamp()}));
+      await batch.commit();showToast(`${items.length}건 폐기 처리 완료.`);onDone();
+    } catch(err){showToast("오류: "+err.message,"error");}
+    finally{setDoing(false);}
+  };
+  return(
+    <div className="modal-overlay" style={{zIndex:80}} onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-red-100 sticky top-0 bg-white z-10">
+          <h2 className="font-extrabold text-red-700 flex items-center gap-2"><Icon name="Archive" size={18} className="text-brand-500"/> 분실물 폐기 처리</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400"><Icon name="X" size={18}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-amber-50 border-l-4 border-brand-500 rounded p-4 flex items-start gap-3">
+            <Icon name="AlertTriangle" size={18} className="text-brand-500 shrink-0 mt-0.5"/>
+            <div><p className="text-sm font-extrabold text-amber-800">폐기 처리 확인</p><p className="text-xs text-amber-700 mt-1">선택한 <strong>{items.length}건</strong>이 폐기 처리됩니다. (이력 보존)</p></div>
+          </div>
+          <div className="max-h-40 overflow-y-auto space-y-1.5 bg-slate-50 rounded p-3 border border-slate-200">
+            {items.map(item=>(
+              <div key={item.id} className="flex items-center gap-2 text-xs">
+                <Icon name="Package" size={13} className="text-slate-400 shrink-0"/>
+                <span className="font-bold text-slate-700 truncate flex-1">{item.itemName}</span>
+                {item.receiptNo&&<span className="text-gov-600 font-bold shrink-0">{item.receiptNo}</span>}
+              </div>
+            ))}
+          </div>
+          <div><label className="block text-sm font-bold text-slate-700 mb-1.5">폐기 처리자 <span className="text-red-500">*</span></label>
+            <input ref={refHandler} type="text" value={handler} onChange={e=>setHandler(e.target.value)} onKeyDown={goNext(refReason)} placeholder="처리자 성함 또는 부서명" className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm field-input"/></div>
+          <div><label className="block text-sm font-bold text-slate-700 mb-1.5">폐기 사유 <span className="text-slate-400 font-normal">(선택)</span></label>
+            <textarea ref={refReason} value={reason} rows={2} onChange={e=>setReason(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleDispose();}}} placeholder="기본값: 장기 미수령 폐기 (엔터로 폐기 확정)" className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm field-input resize-none"/></div>
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="py-2.5 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+          <button onClick={handleDispose} disabled={doing} className="py-2.5 rounded bg-brand-500 text-white font-extrabold text-sm hover:bg-brand-600 disabled:opacity-60 flex items-center justify-center gap-2">
+            {doing?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 처리 중...</>:<><Icon name="Archive" size={16} className="text-white"/> 폐기 처리 확정</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function DeleteBulkModal({items,onClose,onDone,showToast,facilityCode}){
+  const [doing,setDoing]=useState(false);
+  const handleDelete=async()=>{
+    setDoing(true);
+    try {
+      const batch=db.batch();
+      items.forEach(item=>batch.delete(db.collection(facilityCol(facilityCode)).doc(item.id)));
+      await batch.commit();showToast(`${items.length}건 완전 삭제 완료.`);onDone();
+    } catch(err){showToast("삭제 오류: "+err.message,"error");}
+    finally{setDoing(false);}
+  };
+  return(
+    <div className="modal-overlay" style={{zIndex:80}} onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-red-100 sticky top-0 bg-white z-10">
+          <h2 className="font-extrabold text-red-700 flex items-center gap-2"><Icon name="Trash2" size={18} className="text-red-600"/> 완전 삭제</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400"><Icon name="X" size={18}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-red-50 border-l-4 border-red-600 rounded p-4 flex items-start gap-3">
+            <Icon name="AlertTriangle" size={20} className="text-red-500 shrink-0 mt-0.5"/>
+            <div><p className="text-sm font-extrabold text-red-800">⚠️ DB 영구 삭제</p><p className="text-xs text-red-600 mt-1"><strong>{items.length}건</strong>이 완전히 삭제됩니다. 복구 불가.</p></div>
+          </div>
+          <div className="max-h-40 overflow-y-auto space-y-1.5 bg-slate-50 rounded p-3 border border-slate-200">
+            {items.map(item=>(
+              <div key={item.id} className="flex items-center gap-2 text-xs">
+                <Icon name="X" size={12} className="text-red-400 shrink-0"/>
+                <span className="font-bold text-slate-700 truncate flex-1">{item.itemName}</span>
+                {item.receiptNo&&<span className="text-slate-500 font-bold shrink-0">{item.receiptNo}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="py-2.5 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+          <button onClick={handleDelete} disabled={doing} className="py-2.5 rounded bg-red-700 text-white font-extrabold text-sm hover:bg-red-800 disabled:opacity-60 flex items-center justify-center gap-2">
+            {doing?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 삭제 중...</>:<><Icon name="Trash2" size={16} className="text-white"/> 영구 삭제 확정</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   10. 메인 대시보드 (시설별)
+══════════════════════════════════════════ */
+function Dashboard({facilityCode,facilityName,onLogout}){
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+  const [filterStatus,setFilterStatus]=useState("all");
+  const [filterCat,setFilterCat]=useState("all");
+  const [filterAge,setFilterAge]=useState("all");
+  const [viewMode,setViewMode]=useState("gallery");
+  const [showReg,setShowReg]=useState(false);
+  const [selected,setSelected]=useState(null);
+  const [selectMode,setSelectMode]=useState(false);
+  const [selectedIds,setSelectedIds]=useState(new Set());
+  const [showDisposal,setShowDisposal]=useState(false);
+  const [showDeleteBulk,setShowDeleteBulk]=useState(false);
+  const [toast,setToast]=useState({msg:"",type:""});
+
+  const showToast=(msg,type="success")=>{
+    setToast({msg,type});
+    setTimeout(()=>setToast({msg:"",type:""}),3000);
+  };
+
+  useEffect(()=>{
+    setLoading(true);
+    const unsub=db.collection(facilityCol(facilityCode))
+      .orderBy("createdAt","desc")
+      .onSnapshot(snap=>{
+        setItems(snap.docs.map(d=>({id:d.id,...d.data()})));
+        setLoading(false);
+      },err=>{showToast("데이터 로드 오류: "+err.message,"error");setLoading(false);});
+    return()=>unsub();
+  },[facilityCode]);
+
+  const filtered=useMemo(()=>items.filter(item=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||item.itemName?.toLowerCase().includes(q)||item.location?.toLowerCase().includes(q)||item.registrar?.toLowerCase().includes(q)||item.receiptNo?.toLowerCase().includes(q);
+    const matchStatus=filterStatus==="all"||(filterStatus==="holding"&&item.status===STATUS.HOLDING)||(filterStatus==="completed"&&item.status===STATUS.COMPLETED)||(filterStatus==="disposed"&&item.status===STATUS.DISPOSED);
+    const matchCat=filterCat==="all"||item.category===filterCat;
+    const days=calcElapsedDays(item),lv=getAgeLevel(days);
+    const matchAge=filterAge==="all"||(filterAge==="1m"&&lv===1)||(filterAge==="2m"&&lv===2)||(filterAge==="3m"&&lv===3)||(filterAge==="4m"&&lv===4)||(filterAge==="overdue"&&lv>=1);
+    return matchSearch&&matchStatus&&matchCat&&matchAge;
+  }),[items,search,filterStatus,filterCat,filterAge]);
+
+  const totalCount=items.length;
+  const holdingCount=items.filter(i=>i.status===STATUS.HOLDING).length;
+  const completedCount=items.filter(i=>i.status===STATUS.COMPLETED).length;
+  const disposedCount=items.filter(i=>i.status===STATUS.DISPOSED).length;
+  const overdueCount=items.filter(i=>i.status===STATUS.HOLDING&&getAgeLevel(calcElapsedDays(i))>=1).length;
+  const age3pCount=items.filter(i=>i.status===STATUS.HOLDING&&getAgeLevel(calcElapsedDays(i))>=3).length;
+
+  const toggleSelectMode=()=>{ setSelectMode(p=>!p); setSelectedIds(new Set()); };
+  const toggleId=id=>setSelectedIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
+  const selectAll=()=>setSelectedIds(new Set(filtered.map(i=>i.id)));
+  const clearSelection=()=>setSelectedIds(new Set());
+  const selectedItems=filtered.filter(i=>selectedIds.has(i.id));
+  const resetFilters=()=>{setSearch("");setFilterStatus("all");setFilterCat("all");setFilterAge("all");};
+
+  const SummaryCard=({label,value,sub,color,onClick,active})=>(
+    <button onClick={onClick} className={`rounded p-4 text-left transition border summary-card ${active?"active border-gov-800 bg-gov-50":"border-slate-200 bg-white"}`}>
+      <p className={`text-2xl font-extrabold ${color||"text-gov-900"}`}>{value}</p>
+      <p className="text-xs font-bold text-slate-500 mt-0.5">{label}</p>
+      {sub&&<p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    </button>
+  );
+
+  return(
+    <div className="min-h-screen bg-[#f4f6fa]">
+      {/* 헤더 */}
+      <header className="bg-gov-800 text-white sticky top-0 z-30 shadow-md header-accent">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 bg-brand-500 rounded flex items-center justify-center shrink-0">
+              <Icon name="Package" size={18} className="text-white"/>
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-extrabold text-base leading-tight truncate">분실물 통합 관리</h1>
+              <p className="text-gov-300 text-xs flex items-center gap-1"><Icon name="Building2" size={11} className="text-brand-400"/> {facilityName||facilityCode} 시설</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={toggleSelectMode} className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold text-sm transition ${selectMode?"bg-red-600 text-white hover:bg-red-700":"bg-brand-500 text-white hover:bg-brand-600"}`}>
+              <Icon name={selectMode?"X":"CheckSquare"} size={14} className="text-white"/>
+              <span className="hidden sm:inline">{selectMode?"선택 취소":"선택/폐기"}</span>
+            </button>
+            <button onClick={()=>setShowReg(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gov-900 rounded font-extrabold text-sm hover:bg-gov-50 transition">
+              <Icon name="Plus" size={14} className="text-gov-800"/> <span className="hidden sm:inline">신규 등록</span>
+            </button>
+            <button onClick={()=>{localStorage.removeItem("facilityCode");localStorage.removeItem("facilityName");onLogout();}} title="로그아웃" className="p-1.5 hover:bg-gov-800 rounded transition">
+              <Icon name="LogOut" size={16} className="text-white"/>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-5 space-y-4">
+        {/* 요약 카드 */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <SummaryCard label="전체" value={totalCount} color="text-gov-800" onClick={()=>setFilterStatus("all")} active={filterStatus==="all"&&filterAge==="all"}/>
+          <SummaryCard label="보관중" value={holdingCount} color="text-gov-700" onClick={()=>{setFilterStatus("holding");setFilterAge("all");}} active={filterStatus==="holding"&&filterAge==="all"}/>
+          <SummaryCard label="수령완료" value={completedCount} color="text-emerald-700" onClick={()=>{setFilterStatus("completed");setFilterAge("all");}} active={filterStatus==="completed"}/>
+          <SummaryCard label="기간경과⚠️" value={overdueCount} color="text-brand-600" onClick={()=>{setFilterStatus("all");setFilterAge("overdue");}} active={filterAge==="overdue"}/>
+          <SummaryCard label="3개월↑🔴" value={age3pCount} color="text-red-600" onClick={()=>{setFilterStatus("all");setFilterAge("3m");}} active={filterAge==="3m"}/>
+          <SummaryCard label="폐기처리" value={disposedCount} color="text-slate-400" onClick={()=>{setFilterStatus("disposed");setFilterAge("all");}} active={filterStatus==="disposed"}/>
+        </div>
+
+        {/* 검색 & 뷰 */}
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-48">
+            <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="물품명, 장소, 등록자, 접수번호 검색..." className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded text-sm field-input bg-white"/>
+          </div>
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1 py-1">
+            <button onClick={()=>setViewMode("gallery")} title="갤러리 뷰" className={`p-1.5 rounded ${viewMode==="gallery"?"bg-gov-800 text-white":"text-slate-400 hover:bg-slate-100"}`}><Icon name="LayoutGrid" size={15}/></button>
+            <button onClick={()=>setViewMode("list")} title="리스트 뷰" className={`p-1.5 rounded ${viewMode==="list"?"bg-gov-800 text-white":"text-slate-400 hover:bg-slate-100"}`}><Icon name="List" size={15}/></button>
+          </div>
+        </div>
+
+        {/* 카테고리 필터 */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <button onClick={()=>setFilterCat("all")} className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold border transition ${filterCat==="all"?"bg-gov-800 text-white border-gov-800":"bg-white text-slate-600 border-slate-200 hover:border-gov-500"}`}>전체</button>
+          {CATEGORIES.map(c=>(
+            <button key={c.value} onClick={()=>setFilterCat(c.value)} className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold border transition ${filterCat===c.value?"bg-gov-800 text-white border-gov-800":"bg-white text-slate-600 border-slate-200 hover:border-gov-500"}`}>{c.label}</button>
+          ))}
+        </div>
+
+        {/* 선택 모드 액션 바 */}
+        {selectMode&&(
+          <div className="bg-gov-50 border-2 border-gov-300 rounded p-3 flex items-center gap-3 flex-wrap fade-in">
+            <div className="flex items-center gap-2">
+              <Icon name="CheckSquare" size={16} className="text-gov-700"/>
+              <span className="text-sm font-extrabold text-gov-800">{selectedIds.size}건 선택됨</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={selectAll} className="px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded text-slate-600 hover:bg-slate-50">전체 선택 ({filtered.length})</button>
+              <button onClick={clearSelection} className="px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded text-slate-600 hover:bg-slate-50">선택 해제</button>
+            </div>
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <span className="has-tooltip tooltip-right">
+                <button onClick={()=>selectedIds.size>0?setShowDisposal(true):showToast("폐기할 항목을 선택해 주세요.","error")} disabled={selectedIds.size===0} className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 text-white rounded text-sm font-bold hover:bg-brand-600 disabled:opacity-50">
+                  <Icon name="Archive" size={14} className="text-white"/> 폐기 처리 ({selectedIds.size})
+                </button>
+                <span className="tooltip-box">📦 <strong>폐기 처리 (이력 보존)</strong><br/>상태 변경, 데이터는 DB에 남습니다.</span>
+              </span>
+              <span className="has-tooltip tooltip-right">
+                <button onClick={()=>selectedIds.size>0?setShowDeleteBulk(true):showToast("삭제할 항목을 선택해 주세요.","error")} disabled={selectedIds.size===0} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded text-sm font-bold hover:bg-red-700 disabled:opacity-50">
+                  <Icon name="Trash2" size={14} className="text-white"/> 완전 삭제 ({selectedIds.size})
+                </button>
+                <span className="tooltip-box">🗑️ <strong>완전 삭제 (DB 영구 제거)</strong><br/>복구 불가, 신중하게 사용하세요.</span>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* 결과 수 */}
+        <div className="flex items-center justify-between px-1">
+          <p className="text-sm text-slate-500">{filtered.length>0?<><span className="font-extrabold text-slate-800">{filtered.length}</span>건 표시 중</>:<span className="text-slate-400">표시할 항목 없음</span>}</p>
+          {(search||filterStatus!=="all"||filterCat!=="all"||filterAge!=="all")&&(
+            <button onClick={resetFilters} className="text-xs text-brand-600 font-bold hover:underline flex items-center gap-1"><Icon name="X" size={12}/> 필터 초기화</button>
+          )}
+        </div>
+
+        {/* 목록 */}
+        {loading?<Spinner/>:filtered.length===0?(
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white rounded border border-slate-200">
+            <Icon name="PackageSearch" size={48} className="text-slate-300 mb-3"/>
+            <p className="font-bold text-slate-500">표시할 항목이 없습니다</p>
+            {(search||filterStatus!=="all"||filterCat!=="all"||filterAge!=="all")&&<button onClick={resetFilters} className="mt-3 text-sm text-gov-600 font-bold hover:underline">필터 초기화</button>}
+          </div>
+        ):viewMode==="gallery"?(
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {filtered.map(item=><ItemCard key={item.id} item={item} onClick={setSelected} selectMode={selectMode} selected={selectedIds.has(item.id)} onSelect={toggleId}/>)}
+          </div>
+        ):(
+          <div className="bg-white rounded border border-slate-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full data-table">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left">
+                    <th className="py-3 px-3 text-xs font-extrabold text-gov-700 uppercase w-14">{selectMode?"✓":"사진"}</th>
+                    <th className="py-3 px-2 text-xs font-extrabold text-gov-700 uppercase hidden sm:table-cell">접수번호</th>
+                    <th className="py-3 px-2 text-xs font-extrabold text-gov-700 uppercase">물품명</th>
+                    <th className="py-3 px-2 text-xs font-extrabold text-gov-700 uppercase hidden md:table-cell">장소</th>
+                    <th className="py-3 px-2 text-xs font-extrabold text-gov-700 uppercase hidden lg:table-cell">습득일</th>
+                    <th className="py-3 px-2 text-xs font-extrabold text-gov-700 uppercase hidden xl:table-cell">등록자</th>
+                    <th className="py-3 px-3 text-xs font-extrabold text-gov-700 uppercase">상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(item=><ItemRow key={item.id} item={item} onClick={setSelected} selectMode={selectMode} selected={selectedIds.has(item.id)} onSelect={toggleId}/>)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {showReg&&<RegisterModal facilityCode={facilityCode} facilityName={facilityName} onClose={()=>setShowReg(false)} onSaved={()=>setShowReg(false)} showToast={showToast}/>}
+      {selected&&<DetailModal item={selected} facilityCode={facilityCode} onClose={()=>setSelected(null)} onUpdated={()=>setSelected(null)} onDeleted={()=>setSelected(null)} showToast={showToast}/>}
+      {showDisposal&&<DisposalModal items={selectedItems} facilityCode={facilityCode} onClose={()=>setShowDisposal(false)} onDone={()=>{setShowDisposal(false);setSelectedIds(new Set());}} showToast={showToast}/>}
+      {showDeleteBulk&&<DeleteBulkModal items={selectedItems} facilityCode={facilityCode} onClose={()=>setShowDeleteBulk(false)} onDone={()=>{setShowDeleteBulk(false);setSelectedIds(new Set());}} showToast={showToast}/>}
+      <Toast msg={toast.msg} type={toast.type}/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   11. 루트 앱
+══════════════════════════════════════════ */
+function App(){
+  const [facilityCode,setFacilityCode]=useState(()=>localStorage.getItem("facilityCode")||null);
+  const [facilityName,setFacilityName]=useState(()=>localStorage.getItem("facilityName")||"");
+
+  const handleEnter=(code,name)=>{ setFacilityCode(code); setFacilityName(name); };
+  const handleLogout=()=>{ setFacilityCode(null); setFacilityName(""); };
+
+  if(!facilityCode) return <GatePage onEnter={handleEnter}/>;
+  return <Dashboard facilityCode={facilityCode} facilityName={facilityName} onLogout={handleLogout}/>;
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>

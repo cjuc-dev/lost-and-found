@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>분실물 조회</title>
+  <meta name="description" content="시설 분실물 조회 — 이용객 전용"/>
+  <meta name="theme-color" content="#1a2b5e"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        gov:  { 50:'#eef1f8',100:'#d5dcee',200:'#abbade',300:'#7f97cd',400:'#5577bc',500:'#3a5caa',600:'#2d4a94',700:'#233c7d',800:'#1a2b5e',900:'#111d42' },
+        brand:{ 50:'#fff8f3',100:'#ffe8d6',200:'#ffc9a0',300:'#ffa96a',400:'#f88236',500:'#f06a21',600:'#d95a14',700:'#b84a0e',800:'#913a0a',900:'#6f2c07' }
+      }}}
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;background:#f4f6fa;color:#1a2b5e;}
+    .fade-in{animation:fadeIn 0.25s ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    ::-webkit-scrollbar{width:4px;}
+    ::-webkit-scrollbar-thumb{background:#abbade;border-radius:4px;}
+    .header-accent{border-bottom:3px solid #f06a21;}
+    /* 상태 뱃지 */
+    .badge-holding{background:#e8edf8;color:#1a2b5e;border:1px solid #b0bedd;}
+    .badge-completed{background:#e6f4ea;color:#1b5e2f;border:1px solid #9dd0ac;}
+    /* 모달 */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;padding:0;}
+    @media(min-width:640px){.modal-overlay{align-items:center;padding:1rem;}}
+    .modal-box{background:#fff;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;
+      border-radius:16px 16px 0 0;box-shadow:0 -4px 40px rgba(26,43,94,0.18);}
+    @media(min-width:640px){.modal-box{border-radius:8px;}}
+    /* 이미지 썸네일 */
+    .thumb-slot{position:relative;aspect-ratio:1;overflow:hidden;border-radius:6px;border:2px solid #d5dcee;background:#f8faff;cursor:pointer;}
+    .thumb-slot.primary{border-color:#f06a21;}
+    /* 카테고리 필터 칩 */
+    .cat-chip{transition:all .15s;}
+    .cat-chip.active{background:#1a2b5e;color:#fff;border-color:#1a2b5e;}
+    /* 이미지 뷰어 */
+    .img-viewer{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:100;display:flex;align-items:center;justify-content:center;}
+    /* 검색창 */
+    .search-bar:focus{outline:none;border-color:#1a2b5e;box-shadow:0 0 0 3px rgba(26,43,94,0.1);}
+    /* 카드 hover */
+    .item-card{transition:all .18s;cursor:pointer;}
+    .item-card:hover{transform:translateY(-2px);box-shadow:0 4px 18px rgba(26,43,94,0.12);}
+    /* 빈 화면 */
+    .empty-illust{opacity:.18;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ══════════════════════════════════════════
+   Firebase
+══════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "AIzaSyD8dO860fhZoEVZdFruou32HtHfkZVOGCM",
+  authDomain:        "opsmaster-3fbf9.firebaseapp.com",
+  projectId:         "opsmaster-3fbf9",
+  storageBucket:     "opsmaster-3fbf9.firebasestorage.app",
+  messagingSenderId: "453123301113",
+  appId:             "1:453123301113:web:e9e6d0e1169789766b4c28",
+};
+const RAW_APP_ID = firebaseConfig.appId;
+const APP_ID     = RAW_APP_ID.replace(/[^a-zA-Z0-9_-]/g,"_");
+const BASE_PATH  = `artifacts/${APP_ID}/public/data`;
+const FACILITIES_COL = `${BASE_PATH}/facilities`;
+const facilityCol    = (fc) => `${BASE_PATH}/facilities/${fc}/lost_items`;
+
+let db;
+try { firebase.app(); } catch(e) { firebase.initializeApp(firebaseConfig); }
+db = firebase.firestore();
+
+/* ══════════════════════════════════════════
+   상수 & 유틸
+══════════════════════════════════════════ */
+const STATUS = { HOLDING:"보관중", COMPLETED:"수령완료", DISPOSED:"폐기처리" };
+const CATEGORIES = [
+  {value:"all",   label:"전체"},
+  {value:"swimming",label:"수영용품"},{value:"shower",label:"샤워용품"},
+  {value:"electronics",label:"전자기기"},{value:"clothing",label:"의류/모자"},
+  {value:"wallet",label:"지갑/가방"},{value:"keys",label:"열쇠/카드"},
+  {value:"glasses",label:"안경/선글라스"},{value:"umbrella",label:"우산"},
+  {value:"jewelry",label:"귀중품/액세서리"},{value:"other",label:"기타"},
+];
+const CATEGORY_MAP = Object.fromEntries(CATEGORIES.slice(1).map(c=>[c.value,c.label]));
+
+function formatDate(s){
+  if(!s) return "-";
+  const d=new Date(s); if(isNaN(d)) return s;
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+}
+function getParam(key){
+  return new URLSearchParams(window.location.search).get(key)||"";
+}
+
+/* ══════════════════════════════════════════
+   공통 UI
+══════════════════════════════════════════ */
+function Icon({name,size=18,className=""}){
+  const el=lucide[name]||lucide["HelpCircle"];
+  const svg=lucide.createElement(el);
+  svg.setAttribute("width",size); svg.setAttribute("height",size);
+  return <span className={className} dangerouslySetInnerHTML={{__html:svg.outerHTML}}/>;
+}
+function Spinner(){
+  return(
+    <div className="flex flex-col items-center justify-center py-24 gap-3">
+      <div className="w-10 h-10 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/>
+      <p className="text-sm text-slate-400 font-semibold">분실물 목록 불러오는 중...</p>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   이미지 풀스크린 뷰어
+══════════════════════════════════════════ */
+function ImageViewer({urls, startIdx=0, onClose}){
+  const [cur,setCur]=useState(startIdx);
+  useEffect(()=>{
+    const handler=(e)=>{ if(e.key==="Escape") onClose(); if(e.key==="ArrowRight") setCur(p=>Math.min(p+1,urls.length-1)); if(e.key==="ArrowLeft") setCur(p=>Math.max(p-1,0)); };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[]);
+  return(
+    <div className="img-viewer" onClick={onClose}>
+      <div className="relative w-full max-w-lg px-4" onClick={e=>e.stopPropagation()}>
+        <img src={urls[cur]} alt="" className="w-full max-h-[80vh] object-contain rounded-lg"/>
+        {urls.length>1&&(
+          <>
+            <div className="flex justify-center gap-2 mt-3">
+              {urls.map((_,i)=>(
+                <button key={i} onClick={()=>setCur(i)}
+                  className={`w-2 h-2 rounded-full transition ${i===cur?"bg-white":"bg-white/40"}`}/>
+              ))}
+            </div>
+            <div className="absolute inset-y-0 left-0 flex items-center px-1">
+              <button onClick={()=>setCur(p=>Math.max(p-1,0))} disabled={cur===0}
+                className="w-9 h-9 bg-black/50 rounded-full flex items-center justify-center disabled:opacity-20 hover:bg-black/70">
+                <Icon name="ChevronLeft" size={20} className="text-white"/>
+              </button>
+            </div>
+            <div className="absolute inset-y-0 right-0 flex items-center px-1">
+              <button onClick={()=>setCur(p=>Math.min(p+1,urls.length-1))} disabled={cur===urls.length-1}
+                className="w-9 h-9 bg-black/50 rounded-full flex items-center justify-center disabled:opacity-20 hover:bg-black/70">
+                <Icon name="ChevronRight" size={20} className="text-white"/>
+              </button>
+            </div>
+          </>
+        )}
+        <button onClick={onClose}
+          className="absolute top-0 right-4 w-9 h-9 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80">
+          <Icon name="X" size={18} className="text-white"/>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   상세 모달 (이용객용 — 읽기 전용)
+══════════════════════════════════════════ */
+function DetailModal({item, onClose}){
+  const [viewerIdx,setViewerIdx]=useState(null);
+  const urls=(item.imageUrls&&item.imageUrls.length>0)?item.imageUrls:(item.imageUrl?[item.imageUrl]:[]);
+  const isCompleted=item.status===STATUS.COMPLETED;
+
+  // 바텀시트 드래그 닫기 지원
+  const startY=useRef(null);
+  const handleTouchStart=(e)=>{ startY.current=e.touches[0].clientY; };
+  const handleTouchEnd=(e)=>{
+    if(startY.current!==null&&e.changedTouches[0].clientY-startY.current>80) onClose();
+    startY.current=null;
+  };
+
+  return(
+    <>
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-box fade-in" onClick={e=>e.stopPropagation()}
+          onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          {/* 드래그 핸들 (모바일) */}
+          <div className="flex justify-center pt-3 pb-1 sm:hidden">
+            <div className="w-10 h-1 bg-slate-300 rounded-full"/>
+          </div>
+          {/* 헤더 */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 sticky top-0 bg-white z-10">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-extrabold text-gov-900 text-base">{item.itemName}</h2>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${isCompleted?"badge-completed":"badge-holding"}`}>
+                {item.status}
+              </span>
+            </div>
+            <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400 shrink-0">
+              <Icon name="X" size={18}/>
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {/* 사진 */}
+            {urls.length>0?(
+              <div className="space-y-2">
+                {/* 대표사진 */}
+                <div className="relative rounded-lg overflow-hidden bg-slate-900 cursor-pointer"
+                  onClick={()=>setViewerIdx(0)}>
+                  <img src={urls[0]} alt={item.itemName}
+                    className="w-full max-h-56 object-contain mx-auto block"/>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition bg-black/20">
+                    <Icon name="ZoomIn" size={32} className="text-white drop-shadow"/>
+                  </div>
+                  {urls.length>1&&(
+                    <span className="absolute top-2 right-2 bg-black/60 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                      1 / {urls.length}
+                    </span>
+                  )}
+                </div>
+                {/* 추가 사진 썸네일 */}
+                {urls.length>1&&(
+                  <div className="grid grid-cols-3 gap-2">
+                    {urls.map((u,i)=>(
+                      <div key={i} className={`thumb-slot ${i===0?"primary":""}`}
+                        onClick={()=>setViewerIdx(i)}>
+                        <img src={u} alt={`사진${i+1}`} className="w-full h-full object-cover"/>
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 transition">
+                          <Icon name="ZoomIn" size={16} className="text-white"/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ):(
+              <div className="w-full h-32 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2">
+                <Icon name="Image" size={28} className="text-slate-300"/>
+                <span className="text-sm text-slate-400">등록된 사진 없음</span>
+              </div>
+            )}
+
+            {/* 수령 완료 배너 */}
+            {isCompleted&&(
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                <div className="w-9 h-9 bg-emerald-500 rounded-full flex items-center justify-center shrink-0">
+                  <Icon name="CheckCircle" size={18} className="text-white"/>
+                </div>
+                <div>
+                  <p className="text-sm font-extrabold text-emerald-800">이미 반환된 물품입니다</p>
+                  <p className="text-xs text-emerald-600 mt-0.5">해당 물품은 주인에게 반환 완료되었습니다.</p>
+                </div>
+              </div>
+            )}
+
+            {/* 기본 정보 */}
+            <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gov-50 border-b border-slate-200">
+                <p className="text-xs font-extrabold text-gov-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <Icon name="ClipboardList" size={12} className="text-gov-500"/> 물품 정보
+                </p>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 p-4">
+                <div className="col-span-2">
+                  <dt className="text-xs text-slate-400 font-medium mb-0.5">물품명</dt>
+                  <dd className="text-sm font-extrabold text-slate-800">{item.itemName||"-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 font-medium mb-0.5">카테고리</dt>
+                  <dd className="text-sm font-bold text-slate-700">{CATEGORY_MAP[item.category]||item.category||"-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 font-medium mb-0.5">현재 상태</dt>
+                  <dd>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${isCompleted?"badge-completed":"badge-holding"}`}>
+                      {item.status}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 font-medium mb-0.5">습득 장소</dt>
+                  <dd className="text-sm font-bold text-slate-700">{item.location||"-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400 font-medium mb-0.5">습득 일자</dt>
+                  <dd className="text-sm font-bold text-slate-700">{formatDate(item.foundDate)}</dd>
+                </div>
+                {item.memo&&(
+                  <div className="col-span-2">
+                    <dt className="text-xs text-slate-400 font-medium mb-0.5">특이사항</dt>
+                    <dd className="text-sm text-slate-700 leading-relaxed">{item.memo}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+
+            {/* 찾아오는 방법 안내 */}
+            <div className="bg-brand-50 border border-brand-200 rounded-lg px-4 py-4">
+              <p className="text-sm font-extrabold text-brand-800 flex items-center gap-2 mb-2">
+                <Icon name="MapPin" size={15} className="text-brand-500"/> 찾아가는 방법
+              </p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                분실물은 <strong>시설 안내데스크</strong>에 보관되어 있습니다.<br/>
+                안내데스크로 방문해 주세요.
+              </p>
+            </div>
+          </div>
+
+          <div className="px-5 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
+            <button onClick={onClose}
+              className="w-full py-3 rounded-lg bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 transition">
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 이미지 풀스크린 뷰어 */}
+      {viewerIdx!==null&&(
+        <ImageViewer urls={urls} startIdx={viewerIdx} onClose={()=>setViewerIdx(null)}/>
+      )}
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════
+   시설 선택 화면 (facility 파라미터 없을 때)
+══════════════════════════════════════════ */
+function FacilitySelector({onSelect}){
+  const [facilities,setFacilities]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+
+  useEffect(()=>{
+    db.collection(FACILITIES_COL)
+      .where("active","!=",false)
+      .orderBy("active").orderBy("name")
+      .get()
+      .then(snap=>{
+        setFacilities(snap.docs.map(d=>({id:d.id,...d.data()})));
+        setLoading(false);
+      })
+      .catch(()=>{
+        // active 필드 없는 경우 fallback
+        db.collection(FACILITIES_COL).orderBy("name").get()
+          .then(snap=>{ setFacilities(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); })
+          .catch(()=>setLoading(false));
+      });
+  },[]);
+
+  const filtered=facilities.filter(f=>{
+    if(f.active===false) return false;
+    const q=search.toLowerCase();
+    return !q||f.name?.toLowerCase().includes(q)||f.id?.toLowerCase().includes(q);
+  });
+
+  return(
+    <div className="min-h-screen bg-[#f4f6fa] flex flex-col">
+      <header className="bg-gov-800 text-white header-accent shadow-md">
+        <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
+          <div className="w-9 h-9 bg-brand-500 rounded flex items-center justify-center shrink-0">
+            <Icon name="PackageSearch" size={20} className="text-white"/>
+          </div>
+          <div>
+            <h1 className="font-extrabold text-base leading-tight">분실물 조회</h1>
+            <p className="text-gov-300 text-xs">조회할 시설을 선택해 주세요</p>
+          </div>
+        </div>
+      </header>
+      <main className="flex-1 max-w-lg mx-auto w-full px-4 py-5 space-y-4">
+        {/* 검색 */}
+        <div className="relative">
+          <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="시설명 검색..."
+            className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-gov-500 focus:ring-2 focus:ring-gov-100 shadow-sm"/>
+        </div>
+        {loading?(
+          <div className="flex justify-center py-16">
+            <div className="w-8 h-8 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/>
+          </div>
+        ):filtered.length===0?(
+          <div className="text-center py-16 text-slate-400">
+            <Icon name="Building2" size={40} className="text-slate-300 mx-auto mb-2"/>
+            <p className="font-semibold text-sm">등록된 시설이 없습니다</p>
+          </div>
+        ):(
+          <div className="space-y-2">
+            {filtered.map(f=>(
+              <button key={f.id} onClick={()=>onSelect(f)}
+                className="w-full bg-white rounded-lg border border-slate-200 px-4 py-4 flex items-center gap-3 hover:border-gov-400 hover:shadow-md transition text-left">
+                <div className="w-10 h-10 bg-gov-800 rounded-lg flex items-center justify-center shrink-0">
+                  <Icon name="Building2" size={18} className="text-white"/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-extrabold text-gov-900 truncate">{f.name}</p>
+                  <p className="text-xs text-slate-400 font-mono">{f.id}</p>
+                </div>
+                <Icon name="ChevronRight" size={18} className="text-slate-300 shrink-0"/>
+              </button>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   메인 조회 화면
+══════════════════════════════════════════ */
+function ViewerPage({facilityCode, facilityName, onChangeFacility}){
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState("");
+  const [filterCat,setFilterCat]=useState("all");
+  const [filterStatus,setFilterStatus]=useState("all"); // all | holding | completed
+  const [selected,setSelected]=useState(null);
+  const [lastUpdated,setLastUpdated]=useState(null);
+
+  useEffect(()=>{
+    setLoading(true);
+    const unsub=db.collection(facilityCol(facilityCode))
+      .orderBy("createdAt","desc")
+      .onSnapshot(snap=>{
+        const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+        // 폐기처리 자동 제외
+        setItems(all.filter(i=>i.status!==STATUS.DISPOSED));
+        setLastUpdated(new Date());
+        setLoading(false);
+      },()=>setLoading(false));
+    return()=>unsub();
+  },[facilityCode]);
+
+  const filtered=useMemo(()=>items.filter(item=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||item.itemName?.toLowerCase().includes(q)||item.location?.toLowerCase().includes(q);
+    const matchCat=filterCat==="all"||item.category===filterCat;
+    const matchStatus=filterStatus==="all"
+      ||(filterStatus==="holding"&&item.status===STATUS.HOLDING)
+      ||(filterStatus==="completed"&&item.status===STATUS.COMPLETED);
+    return matchSearch&&matchCat&&matchStatus;
+  }),[items,search,filterCat,filterStatus]);
+
+  const holdingCount=items.filter(i=>i.status===STATUS.HOLDING).length;
+  const completedCount=items.filter(i=>i.status===STATUS.COMPLETED).length;
+
+  function relUpdated(){
+    if(!lastUpdated) return "";
+    const diff=Math.floor((Date.now()-lastUpdated.getTime())/1000);
+    if(diff<10) return "방금 전";
+    if(diff<60) return `${diff}초 전`;
+    return `${Math.floor(diff/60)}분 전`;
+  }
+
+  return(
+    <div className="min-h-screen bg-[#f4f6fa] flex flex-col">
+      {/* 헤더 */}
+      <header className="bg-gov-800 text-white header-accent shadow-md sticky top-0 z-30">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="w-9 h-9 bg-brand-500 rounded flex items-center justify-center shrink-0">
+            <Icon name="PackageSearch" size={20} className="text-white"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-extrabold text-base leading-tight truncate">{facilityName||facilityCode}</h1>
+            <p className="text-gov-300 text-xs flex items-center gap-1">
+              분실물 조회
+              {lastUpdated&&<span className="text-gov-400"> · {relUpdated()} 업데이트</span>}
+            </p>
+          </div>
+          <button onClick={onChangeFacility}
+            className="px-3 py-1.5 rounded bg-gov-700 text-white text-xs font-bold hover:bg-gov-600 flex items-center gap-1 shrink-0">
+            <Icon name="ArrowLeftRight" size={12} className="text-white"/> 시설변경
+          </button>
+        </div>
+      </header>
+
+      {/* 요약 카운터 */}
+      <div className="max-w-2xl mx-auto w-full px-4 pt-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            {label:"전체",value:items.length,f:"all",color:"text-gov-800",bg:"bg-white",border:"border-slate-200"},
+            {label:"보관중",value:holdingCount,f:"holding",color:"text-blue-700",bg:"bg-blue-50",border:"border-blue-200"},
+            {label:"반환완료",value:completedCount,f:"completed",color:"text-emerald-700",bg:"bg-emerald-50",border:"border-emerald-200"},
+          ].map(c=>(
+            <button key={c.f} onClick={()=>setFilterStatus(p=>p===c.f?"all":c.f)}
+              className={`${c.bg} border-2 rounded-lg p-3 text-center transition ${filterStatus===c.f?`${c.border} shadow-md scale-[1.02]`:"border-transparent hover:border-slate-200"}`}>
+              <p className={`text-xl font-extrabold ${c.color}`}>{c.value}</p>
+              <p className="text-xs text-slate-500 mt-0.5 font-semibold">{c.label}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 검색 + 필터 */}
+      <div className="max-w-2xl mx-auto w-full px-4 pt-3 space-y-2">
+        {/* 검색창 */}
+        <div className="relative">
+          <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="물품명, 장소로 검색..."
+            className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg text-sm search-bar shadow-sm"/>
+          {search&&(
+            <button onClick={()=>setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <Icon name="X" size={15}/>
+            </button>
+          )}
+        </div>
+        {/* 카테고리 필터 (가로 스크롤) */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 hide-scrollbar" style={{scrollbarWidth:"none"}}>
+          {CATEGORIES.map(c=>(
+            <button key={c.value} onClick={()=>setFilterCat(c.value)}
+              className={`cat-chip shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border transition
+                ${filterCat===c.value
+                  ?"bg-gov-800 text-white border-gov-800"
+                  :"bg-white text-slate-600 border-slate-200 hover:border-gov-300"}`}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 결과 카운트 */}
+      <div className="max-w-2xl mx-auto w-full px-4 pt-2 pb-1">
+        <p className="text-xs text-slate-400 font-semibold">
+          {loading?"로딩 중...":`${filtered.length}건 표시`}
+          {(search||filterCat!=="all"||filterStatus!=="all")&&(
+            <button onClick={()=>{setSearch("");setFilterCat("all");setFilterStatus("all");}}
+              className="ml-2 text-brand-500 hover:text-brand-700 font-bold">필터 초기화</button>
+          )}
+        </p>
+      </div>
+
+      {/* 아이템 리스트 */}
+      <main className="flex-1 max-w-2xl mx-auto w-full px-4 pb-8">
+        {loading?<Spinner/>:filtered.length===0?(
+          <div className="flex flex-col items-center py-20 gap-3">
+            <div className="empty-illust">
+              <Icon name="PackageSearch" size={72} className="text-gov-300"/>
+            </div>
+            <p className="font-extrabold text-slate-500 text-base">
+              {items.length===0?"현재 보관 중인 분실물이 없습니다":"검색 결과가 없습니다"}
+            </p>
+            <p className="text-xs text-slate-400 text-center leading-relaxed">
+              {items.length===0
+                ?"분실물이 접수되면 여기에 표시됩니다"
+                :"다른 키워드로 검색하거나 필터를 초기화해 보세요"}
+            </p>
+          </div>
+        ):(
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {filtered.map(item=>{
+              const thumb=(item.imageUrls&&item.imageUrls.length>0)?item.imageUrls[0]:item.imageUrl||null;
+              const extraCount=(item.imageUrls&&item.imageUrls.length>1)?item.imageUrls.length-1:0;
+              const isCompleted=item.status===STATUS.COMPLETED;
+              return(
+                <div key={item.id} className="item-card bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fade-in"
+                  onClick={()=>setSelected(item)}>
+                  {/* 사진 영역 */}
+                  <div className="relative bg-slate-100" style={{aspectRatio:"4/3"}}>
+                    {thumb
+                      ?<img src={thumb} alt={item.itemName} className="w-full h-full object-cover" loading="lazy"/>
+                      :<div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                        <Icon name="Image" size={24} className="text-slate-200"/>
+                        <span className="text-[10px] text-slate-300">사진 없음</span>
+                      </div>
+                    }
+                    {/* 반환완료 오버레이 */}
+                    {isCompleted&&(
+                      <div className="absolute inset-0 bg-emerald-900/50 flex items-center justify-center">
+                        <div className="bg-emerald-500 text-white text-xs font-extrabold px-2 py-1 rounded-full flex items-center gap-1">
+                          <Icon name="CheckCircle" size={11} className="text-white"/> 반환완료
+                        </div>
+                      </div>
+                    )}
+                    {/* 사진 수 뱃지 */}
+                    {extraCount>0&&!isCompleted&&(
+                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Icon name="Images" size={9} className="text-white"/> +{extraCount}
+                      </div>
+                    )}
+                    {/* 카테고리 라벨 */}
+                    {!isCompleted&&(
+                      <div className="absolute top-1.5 left-1.5">
+                        <span className="bg-gov-800/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                          {CATEGORY_MAP[item.category]||"기타"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {/* 텍스트 영역 */}
+                  <div className="p-2.5">
+                    <p className="text-sm font-extrabold text-slate-800 truncate leading-snug">{item.itemName}</p>
+                    <p className="text-xs text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                      <Icon name="MapPin" size={10} className="text-slate-400 shrink-0"/>{item.location||"-"}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                      <Icon name="Calendar" size={10} className="text-slate-300 shrink-0"/>{formatDate(item.foundDate)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* 하단 안내 */}
+      <footer className="bg-white border-t border-slate-200 py-4 px-4 text-center">
+        <p className="text-xs text-slate-500 font-semibold">
+          분실물은 시설 안내데스크에 보관되어 있습니다.
+        </p>
+        <p className="text-xs text-slate-400 mt-0.5">안내데스크로 방문해 주세요.</p>
+      </footer>
+
+      {/* 상세 모달 */}
+      {selected&&<DetailModal item={selected} onClose={()=>setSelected(null)}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   앱 루트
+══════════════════════════════════════════ */
+function App(){
+  // URL 파라미터에서 시설 코드 읽기
+  const paramFacility=getParam("facility").toLowerCase();
+  const [facilityCode,setFacilityCode]=useState(paramFacility||"");
+  const [facilityName,setFacilityName]=useState("");
+  const [resolving,setResolving]=useState(!!paramFacility);
+
+  // URL 파라미터로 바로 진입 시 시설 정보 조회
+  useEffect(()=>{
+    if(!paramFacility){ setResolving(false); return; }
+    db.collection(FACILITIES_COL).doc(paramFacility).get()
+      .then(snap=>{
+        if(snap.exists&&snap.data().active!==false){
+          setFacilityCode(snap.data().facilityCode||snap.id);
+          setFacilityName(snap.data().name||"");
+        } else {
+          // 코드가 없거나 비활성 → 선택 화면으로
+          setFacilityCode("");
+        }
+        setResolving(false);
+      })
+      .catch(()=>{ setFacilityCode(""); setResolving(false); });
+  },[]);
+
+  if(resolving){
+    return(
+      <div className="min-h-screen bg-[#f4f6fa] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin mx-auto mb-3"/>
+          <p className="text-sm text-slate-400 font-semibold">시설 정보 확인 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if(!facilityCode){
+    return(
+      <FacilitySelector onSelect={f=>{
+        setFacilityCode(f.facilityCode||f.id);
+        setFacilityName(f.name||"");
+        // URL 업데이트 (뒤로가기 지원)
+        window.history.pushState({},"",`?facility=${f.facilityCode||f.id}`);
+      }}/>
+    );
+  }
+
+  return(
+    <ViewerPage
+      facilityCode={facilityCode}
+      facilityName={facilityName}
+      onChangeFacility={()=>{
+        setFacilityCode(""); setFacilityName("");
+        window.history.pushState({},"","?");
+      }}
+    />
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>

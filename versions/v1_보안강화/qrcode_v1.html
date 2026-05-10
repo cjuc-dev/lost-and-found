@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>분실물 관리 시스템 — QR코드 / 바코드</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        gov:  { 50:'#eef1f8',100:'#d5dcee',200:'#abbade',300:'#7f97cd',400:'#5577bc',500:'#3a5caa',600:'#2d4a94',700:'#233c7d',800:'#1a2b5e',900:'#111d42' },
+        brand:{ 50:'#fff8f3',100:'#ffe8d6',200:'#ffc9a0',300:'#ffa96a',400:'#f88236',500:'#f06a21',600:'#d95a14',700:'#b84a0e',800:'#913a0a',900:'#6f2c07' }
+      }}}
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;background:#f4f6fa;}
+    @media print {
+      .no-print{display:none!important;}
+      body{background:#fff;}
+      .print-card{break-inside:avoid;box-shadow:none!important;border:1px solid #ccc!important;}
+      .print-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#f4f6fa]">
+
+  <!-- 헤더 -->
+  <header class="bg-[#1a2b5e] text-white sticky top-0 z-30 shadow-md" style="border-bottom:3px solid #f06a21">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 bg-[#f06a21] rounded flex items-center justify-center">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        </div>
+        <div>
+          <h1 class="font-extrabold text-base leading-tight">분실물 관리 시스템 QR / 바코드</h1>
+          <p class="text-[#7f97cd] text-xs">인쇄 후 시설 안내판에 부착하세요</p>
+        </div>
+      </div>
+      <div class="flex gap-2 no-print">
+        <button onclick="window.print()"
+          class="flex items-center gap-1.5 px-3 py-2 bg-[#f06a21] text-white text-sm font-bold rounded hover:bg-[#d95a14] transition">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          인쇄하기
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- URL 설정 패널 -->
+    <div class="bg-white rounded border border-slate-200 shadow-sm p-5 no-print">
+      <h2 class="font-extrabold text-[#1a2b5e] text-sm mb-3 flex items-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1a2b5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        접속 URL 설정
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">시설 담당자 페이지 URL</label>
+          <input id="urlMain" type="text"
+            value="https://manual-5d03dc.gitlab.io/lost_and_found.html"
+            class="w-full border border-slate-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#1a2b5e]"
+            oninput="regenerate()"/>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">이용객 조회 페이지 URL</label>
+          <div class="flex gap-2">
+            <input id="urlView" type="text"
+              value="https://manual-5d03dc.gitlab.io/lost_and_found_view.html"
+              class="flex-1 border border-slate-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#22c55e]"
+              oninput="regenerate()"/>
+            <input id="facilityCode" type="text" placeholder="시설코드 (예: a01)"
+              class="w-28 border border-slate-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#22c55e]"
+              oninput="regenerate()"/>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1">💡 시설코드 입력 시 해당 시설 전용 QR이 생성됩니다.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 카드 그리드 -->
+    <div class="print-grid grid grid-cols-1 sm:grid-cols-2 gap-5">
+
+      <!-- ① 시설 담당자 QR -->
+      <div class="print-card bg-white rounded border-2 border-[#1a2b5e] shadow-md overflow-hidden">
+        <div class="bg-[#1a2b5e] px-5 py-4 text-center">
+          <div class="w-12 h-12 bg-[#f06a21] rounded-full flex items-center justify-center mx-auto mb-2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <h2 class="text-white font-extrabold text-base">시설 담당자 접속</h2>
+          <p class="text-[#7f97cd] text-xs mt-0.5">분실물 등록 · 관리 담당자용</p>
+        </div>
+        <div class="p-5 flex flex-col items-center gap-4">
+          <div class="bg-white p-3 rounded border-2 border-[#d5dcee] shadow-inner">
+            <div id="qr-main"></div>
+          </div>
+          <div class="text-center space-y-1">
+            <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">QR코드를 스캔하세요</p>
+            <p class="text-xs text-[#1a2b5e] font-bold font-mono break-all" id="url-main-display"></p>
+          </div>
+          <!-- 안내 문구 -->
+          <div class="w-full bg-[#eef1f8] rounded px-4 py-3 border border-[#d5dcee]">
+            <p class="text-xs text-[#1a2b5e] font-bold text-center mb-1">📌 이용 방법</p>
+            <ol class="text-xs text-slate-600 space-y-0.5 list-decimal pl-4">
+              <li>QR코드를 스마트폰 카메라로 스캔</li>
+              <li>배정받은 <strong>시설 코드</strong> 입력</li>
+              <li>분실물 조회 및 등록</li>
+            </ol>
+          </div>
+        </div>
+        <!-- 하단 로고 라인 -->
+        <div class="bg-[#f4f6fa] border-t border-slate-200 px-5 py-2.5 flex items-center justify-between">
+          <span class="text-xs text-slate-400">분실물 통합 관리 시스템</span>
+          <span class="text-xs font-bold text-[#f06a21]">lost &amp; found</span>
+        </div>
+      </div>
+
+      <!-- ② 이용객 분실물 조회 QR -->
+      <div class="print-card bg-white rounded border-2 border-[#16a34a] shadow-md overflow-hidden">
+        <div class="bg-[#16a34a] px-5 py-4 text-center">
+          <div class="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto mb-2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <h2 class="text-white font-extrabold text-base">이용객 분실물 조회</h2>
+          <p class="text-green-100 text-xs mt-0.5">사진·품명·장소 조회 전용 (읽기 전용)</p>
+        </div>
+        <div class="p-5 flex flex-col items-center gap-4">
+          <!-- QR 이미지 업로드 영역 -->
+          <div class="w-full">
+            <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-widest text-center mb-2">QR 이미지 붙여넣기 / 업로드</p>
+            <div id="qr-upload-zone"
+              class="relative flex flex-col items-center justify-center border-2 border-dashed border-green-300 rounded-lg bg-green-50 cursor-pointer transition hover:border-green-500 hover:bg-green-100"
+              style="min-height:196px;"
+              onclick="document.getElementById('qr-file-input').click()"
+              ondragover="event.preventDefault();this.classList.add('border-green-500','bg-green-100')"
+              ondragleave="this.classList.remove('border-green-500','bg-green-100')"
+              ondrop="handleQRDrop(event)">
+              <img id="qr-upload-preview" src="" alt="" class="hidden max-w-full max-h-48 object-contain rounded"/>
+              <div id="qr-upload-placeholder" class="flex flex-col items-center gap-2 py-6 px-4 text-center">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <p class="text-xs font-bold text-green-700">QR 이미지를 드래그하거나 클릭하여 업로드</p>
+                <p class="text-[10px] text-slate-400">또는 Ctrl+V 로 붙여넣기 (PNG, JPG)</p>
+              </div>
+              <button id="qr-upload-clear" onclick="clearQRUpload(event)"
+                class="hidden absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold hover:bg-red-700">✕</button>
+            </div>
+            <input id="qr-file-input" type="file" accept="image/*" class="hidden" onchange="handleQRFile(this.files[0])"/>
+          </div>
+
+          <!-- 기능 안내 -->
+          <div class="w-full bg-green-50 rounded-lg border border-green-200 px-4 py-4">
+            <p class="text-xs font-extrabold text-green-800 mb-2">📋 이용객 조회 페이지 기능</p>
+            <ul class="text-xs text-slate-600 space-y-1.5">
+              <li class="flex items-start gap-1.5"><span class="text-green-500 font-bold mt-0.5">✓</span> 분실물 사진·품명·장소 조회</li>
+              <li class="flex items-start gap-1.5"><span class="text-green-500 font-bold mt-0.5">✓</span> 보관중 / 반환완료 상태 확인</li>
+              <li class="flex items-start gap-1.5"><span class="text-green-500 font-bold mt-0.5">✓</span> 카테고리·키워드 검색</li>
+              <li class="flex items-start gap-1.5"><span class="text-red-400 font-bold mt-0.5">✕</span> 수정·삭제 불가 (조회 전용)</li>
+            </ul>
+          </div>
+
+          <div class="text-center space-y-0.5">
+            <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">접속 URL</p>
+            <p class="text-xs text-[#16a34a] font-bold font-mono break-all" id="url-guest-display"></p>
+          </div>
+        </div>
+        <div class="bg-[#f0fdf4] border-t border-green-200 px-5 py-2.5 flex items-center justify-between">
+          <span class="text-xs text-slate-400">이용객 전용 — 수정·삭제 불가</span>
+          <span class="text-xs font-bold text-[#16a34a]">read only</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PNG 다운로드 버튼 -->
+    <div class="no-print flex flex-wrap gap-3 justify-center">
+      <button onclick="downloadQR('qr-main','시설담당자_QR')"
+        class="flex items-center gap-2 px-5 py-2.5 bg-[#1a2b5e] text-white font-bold text-sm rounded hover:bg-[#111d42] transition shadow">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        시설 담당자 QR 이미지 저장
+      </button>
+      <button onclick="downloadUploadedQR()"
+        class="flex items-center gap-2 px-5 py-2.5 bg-[#16a34a] text-white font-bold text-sm rounded hover:bg-[#15803d] transition shadow">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        이용객 QR 이미지 저장
+      </button>
+    </div>
+
+    <div class="no-print text-center space-y-1 pb-4">
+      <p class="text-xs text-slate-400">운영기관: 청주도시공사 | 문의: 043-820-7242</p>
+      <p class="text-xs">
+        <a href="privacy_policy.html" class="text-slate-400 hover:text-blue-600 underline">개인정보 처리방침</a>
+        <span class="text-slate-300 mx-1.5">|</span>
+        <a href="terms_of_use.html" class="text-slate-400 hover:text-blue-600 underline">이용약관</a>
+      </p>
+      <p class="text-xs text-slate-400">© 2026 청주도시공사 분실물 통합 관리 시스템 · URL 변경 시 위 입력창에서 수정 후 다시 인쇄하세요</p>
+    </div>
+  </main>
+
+<script>
+/* ────────────────────────────────────────
+   QR 생성
+──────────────────────────────────────── */
+let qrMain=null;
+
+function buildQR(containerId, url, colorDark){
+  const el=document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML="";
+  return new QRCode(el,{
+    text: url||"https://example.com",
+    width: 180, height: 180,
+    colorDark: colorDark||"#1a2b5e",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.H
+  });
+}
+
+function regenerate(){
+  const urlMain=document.getElementById("urlMain").value.trim()||"https://example.com";
+  const urlView=document.getElementById("urlView").value.trim()||"https://example.com";
+  const fc=document.getElementById("facilityCode").value.trim();
+  const gUrl=fc?(urlView+"?facility="+encodeURIComponent(fc)):urlView;
+
+  document.getElementById("url-main-display").textContent=urlMain;
+  document.getElementById("url-guest-display").textContent=gUrl;
+
+  buildQR("qr-main", urlMain, "#1a2b5e");
+}
+
+/* ────────────────────────────────────────
+   QR 이미지 업로드 / 붙여넣기
+──────────────────────────────────────── */
+function showQRPreview(src){
+  const preview=document.getElementById("qr-upload-preview");
+  const placeholder=document.getElementById("qr-upload-placeholder");
+  const clearBtn=document.getElementById("qr-upload-clear");
+  preview.src=src;
+  preview.classList.remove("hidden");
+  placeholder.classList.add("hidden");
+  clearBtn.classList.remove("hidden");
+}
+
+function clearQRUpload(e){
+  if(e) e.stopPropagation();
+  const preview=document.getElementById("qr-upload-preview");
+  const placeholder=document.getElementById("qr-upload-placeholder");
+  const clearBtn=document.getElementById("qr-upload-clear");
+  preview.src="";
+  preview.classList.add("hidden");
+  placeholder.classList.remove("hidden");
+  clearBtn.classList.add("hidden");
+  document.getElementById("qr-file-input").value="";
+}
+
+function handleQRFile(file){
+  if(!file||!file.type.startsWith("image/")) return;
+  const reader=new FileReader();
+  reader.onload=(e)=>showQRPreview(e.target.result);
+  reader.readAsDataURL(file);
+}
+
+function handleQRDrop(e){
+  e.preventDefault();
+  document.getElementById("qr-upload-zone").classList.remove("border-green-500","bg-green-100");
+  const file=e.dataTransfer.files[0];
+  handleQRFile(file);
+}
+
+// 전역 붙여넣기(Ctrl+V) 지원
+document.addEventListener("paste",(e)=>{
+  const items=e.clipboardData?.items;
+  if(!items) return;
+  for(const item of items){
+    if(item.type.startsWith("image/")){
+      const file=item.getAsFile();
+      handleQRFile(file);
+      break;
+    }
+  }
+});
+
+/* ────────────────────────────────────────
+   QR 이미지 PNG 다운로드
+──────────────────────────────────────── */
+function downloadQR(containerId, fileName){
+  const container=document.getElementById(containerId);
+  const img=container.querySelector("img");
+  const canvas=container.querySelector("canvas");
+  let src="";
+  if(canvas) src=canvas.toDataURL("image/png");
+  else if(img) src=img.src;
+  else{ alert("QR 이미지를 찾을 수 없습니다."); return; }
+  const a=document.createElement("a");
+  a.href=src; a.download=fileName+".png"; a.click();
+}
+
+function downloadUploadedQR(){
+  const preview=document.getElementById("qr-upload-preview");
+  if(!preview.src||preview.classList.contains("hidden")){
+    alert("먼저 이용객 QR 이미지를 업로드하거나 붙여넣기 해주세요."); return;
+  }
+  const a=document.createElement("a");
+  a.href=preview.src; a.download="이용객조회_QR.png"; a.click();
+}
+
+/* ────────────────────────────────────────
+   초기 실행
+──────────────────────────────────────── */
+window.addEventListener("load",()=>{
+  regenerate();
+});
+</script>
+</body>
+</html>

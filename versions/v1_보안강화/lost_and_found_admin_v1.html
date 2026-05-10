@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>관리자 대시보드 — 분실물 통합 관리 시스템</title>
+  <meta name="description" content="전체 시설 관리자 전용 대시보드"/>
+  <meta name="theme-color" content="#1a2b5e"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- SHA-256 해시 폴백: file:// 환경에서 crypto.subtle 사용 불가 시 CryptoJS 사용 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        gov:  { 50:'#eef1f8',100:'#d5dcee',200:'#abbade',300:'#7f97cd',400:'#5577bc',500:'#3a5caa',600:'#2d4a94',700:'#233c7d',800:'#1a2b5e',900:'#111d42' },
+        brand:{ 50:'#fff8f3',100:'#ffe8d6',200:'#ffc9a0',300:'#ffa96a',400:'#f88236',500:'#f06a21',600:'#d95a14',700:'#b84a0e',800:'#913a0a',900:'#6f2c07' }
+      }}}
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;background:#f4f6fa;color:#1a2b5e;}
+    .fade-in{animation:fadeIn 0.25s ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-track{background:#f4f6fa;}
+    ::-webkit-scrollbar-thumb{background:#abbade;border-radius:4px;}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem;}
+    .modal-box{background:#fff;border-radius:4px;width:100%;max-width:580px;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(26,43,94,0.18);}
+    .gate-bg{min-height:100vh;background:#f4f6fa;}
+    .gate-card{background:#fff;border-radius:4px;box-shadow:0 4px 24px rgba(26,43,94,0.12);border:1px solid #d5dcee;overflow:hidden;}
+    .status-holding{background:#e8edf8;color:#1a2b5e;border:1px solid #b0bedd;}
+    .status-completed{background:#e6f4ea;color:#1b5e2f;border:1px solid #9dd0ac;}
+    .status-disposed{background:#f2f2f2;color:#666;border:1px solid #ccc;}
+    .has-tooltip{position:relative;}
+    .has-tooltip .tooltip-box{display:none;position:absolute;bottom:calc(100%+8px);left:50%;transform:translateX(-50%);background:#1a2b5e;color:#fff;font-size:11px;line-height:1.5;font-weight:500;padding:8px 11px;border-radius:4px;white-space:normal;min-width:180px;max-width:240px;text-align:left;box-shadow:0 4px 16px rgba(26,43,94,0.25);z-index:999;pointer-events:none;}
+    .has-tooltip .tooltip-box::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:#1a2b5e;}
+    .has-tooltip:hover .tooltip-box{display:block;animation:fadeIn 0.15s ease;}
+    .facility-card{transition:all 0.18s;}
+    .facility-card:hover{transform:translateY(-2px);box-shadow:0 4px 18px rgba(26,43,94,0.12);border-color:#abbade!important;}
+    .header-accent{border-bottom:3px solid #f06a21;}
+    .data-table th{background:#eef1f8;color:#1a2b5e;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;}
+    .data-table tr:hover{background:#f8f9fd;}
+    .chart-container{position:relative;width:100%;}
+    input[type="file"]::file-selector-button{background:#1a2b5e;color:#fff;border:none;padding:6px 14px;border-radius:3px;font-size:12px;font-weight:700;cursor:pointer;margin-right:8px;}
+    input[type="file"]::file-selector-button:hover{background:#111d42;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ══════════════════════════════════════════
+   Firebase 설정
+══════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "AIzaSyD8dO860fhZoEVZdFruou32HtHfkZVOGCM",
+  authDomain:        "opsmaster-3fbf9.firebaseapp.com",
+  projectId:         "opsmaster-3fbf9",
+  storageBucket:     "opsmaster-3fbf9.firebasestorage.app",
+  messagingSenderId: "453123301113",
+  appId:             "1:453123301113:web:e9e6d0e1169789766b4c28",
+  measurementId:     "G-YKELC63WT5"
+};
+const RAW_APP_ID = firebaseConfig.appId || "lost-and-found";
+const APP_ID     = RAW_APP_ID.replace(/[^a-zA-Z0-9_-]/g,"_");
+/* ── 관리자 코드 보안: SHA-256 해시 비교 방식 (원문 비노출) ── */
+const ADMIN_HASH = "4d8365e1bfd24389fc3fdfcefe89f8880d04924ce518ddb6611a472e70200514";
+async function sha256Async(str) {
+  if (window.crypto && window.crypto.subtle) {
+    const encoded = new TextEncoder().encode(str);
+    const buf = await crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+  if (window.CryptoJS) {
+    return CryptoJS.SHA256(str).toString();
+  }
+  console.error('[보안] SHA-256 해시 생성 불가');
+  return '';
+}
+async function verifyAdminCode(input) {
+  const hash = await sha256Async(input.trim().toUpperCase());
+  return hash === ADMIN_HASH;
+}
+/* ── 로그인 시도 횟수 제한 (5회 실패 시 30초 잠금) ── */
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_SEC = 30;
+function getLoginState() {
+  const raw = sessionStorage.getItem('_admin_login_state');
+  if (!raw) return { attempts: 0, lockedUntil: 0 };
+  try { return JSON.parse(raw); } catch { return { attempts: 0, lockedUntil: 0 }; }
+}
+function setLoginState(state) {
+  sessionStorage.setItem('_admin_login_state', JSON.stringify(state));
+}
+function isLoginLocked() {
+  const s = getLoginState();
+  if (s.lockedUntil && Date.now() < s.lockedUntil) return true;
+  if (s.lockedUntil && Date.now() >= s.lockedUntil) { setLoginState({ attempts: 0, lockedUntil: 0 }); }
+  return false;
+}
+function recordLoginAttempt(success) {
+  if (success) { setLoginState({ attempts: 0, lockedUntil: 0 }); return; }
+  const s = getLoginState();
+  const next = s.attempts + 1;
+  if (next >= LOGIN_MAX_ATTEMPTS) {
+    setLoginState({ attempts: next, lockedUntil: Date.now() + LOGIN_LOCKOUT_SEC * 1000 });
+  } else {
+    setLoginState({ attempts: next, lockedUntil: 0 });
+  }
+}
+const BASE_PATH  = `artifacts/${APP_ID}/public/data`;
+const FACILITIES_COL = `${BASE_PATH}/facilities`;
+const facilityCol    = (fc) => `${BASE_PATH}/facilities/${fc}/lost_items`;
+// 로그 컬렉션 (index.html 과 동일 경로)
+const VISIT_LOGS_COL    = `${BASE_PATH}/visit_logs`;
+const ACTIVITY_LOGS_COL = `${BASE_PATH}/activity_logs`;
+
+let db;
+try { firebase.app(); } catch(e) { firebase.initializeApp(firebaseConfig); }
+db = firebase.firestore();
+
+/* ══════════════════════════════════════════
+   유틸
+══════════════════════════════════════════ */
+const STATUS = { HOLDING:"보관중", COMPLETED:"수령완료", DISPOSED:"폐기처리" };
+const CATEGORIES = [
+  {value:"swimming",label:"수영용품"},{value:"shower",label:"샤워용품"},
+  {value:"electronics",label:"전자기기"},{value:"clothing",label:"의류/모자"},
+  {value:"wallet",label:"지갑/가방"},{value:"keys",label:"열쇠/카드"},
+  {value:"glasses",label:"안경/선글라스"},{value:"umbrella",label:"우산"},
+  {value:"jewelry",label:"귀중품/액세서리"},{value:"other",label:"기타"},
+];
+const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c=>[c.value,c.label]));
+
+function formatDate(s){
+  if(!s) return "-";
+  const d=new Date(s);
+  if(isNaN(d)) return s;
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+}
+function today(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function calcElapsedDays(item){
+  const base=item.foundDate||(item.createdAt?.toDate?item.createdAt.toDate().toISOString().slice(0,10):null);
+  if(!base) return 0;
+  return Math.floor((Date.now()-new Date(base).getTime())/(86400000));
+}
+function getAgeLevel(days){
+  if(days>=120) return 4; if(days>=90) return 3;
+  if(days>=60) return 2;  if(days>=30) return 1;
+  return 0;
+}
+
+/* ══════════════════════════════════════════
+   공통 UI
+══════════════════════════════════════════ */
+function Icon({name,size=18,className=""}){
+  const el=lucide[name]||lucide["HelpCircle"];
+  const svg=lucide.createElement(el);
+  svg.setAttribute("width",size); svg.setAttribute("height",size);
+  return <span className={className} dangerouslySetInnerHTML={{__html:svg.outerHTML}}/>;
+}
+function Spinner(){return(<div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/></div>);}
+function Toast({msg,type}){
+  if(!msg) return null;
+  const bg=type==="error"?"bg-red-600":"bg-gov-800";
+  return(
+    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] ${bg} text-white px-5 py-3 rounded shadow-xl text-sm font-semibold fade-in flex items-center gap-2 max-w-sm`}>
+      <Icon name={type==="error"?"AlertCircle":"CheckCircle"} size={16} className="text-white shrink-0"/>
+      <span>{msg}</span>
+    </div>
+  );
+}
+function Badge({status}){
+  const cls=status===STATUS.COMPLETED?"status-completed":status===STATUS.DISPOSED?"status-disposed":"status-holding";
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${cls}`}>{status}</span>;
+}
+
+/* ══════════════════════════════════════════
+   이용객 QR 모달
+══════════════════════════════════════════ */
+const VIEW_BASE_URL = (() => {
+  const loc = window.location;
+  const base = loc.origin + loc.pathname.replace('lost_and_found_admin.html','');
+  return base + 'lost_and_found_view.html';
+})();
+
+function GuestQRModal({facility, onClose}){
+  const qrRef = useRef(null);
+  const qrInst = useRef(null);
+  const viewUrl = `${VIEW_BASE_URL}?facility=${facility.id}`;
+
+  useEffect(()=>{
+    if(!qrRef.current) return;
+    qrRef.current.innerHTML = '';
+    qrInst.current = new QRCode(qrRef.current, {
+      text: viewUrl,
+      width: 200, height: 200,
+      colorDark: '#1a2b5e',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  },[]);
+
+  const handleDownload = () => {
+    const canvas = qrRef.current?.querySelector('canvas');
+    const img    = qrRef.current?.querySelector('img');
+    const src    = canvas ? canvas.toDataURL('image/png') : img?.src;
+    if(!src){ alert('QR 이미지를 찾을 수 없습니다.'); return; }
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = `이용객QR_${facility.name||facility.id}.png`;
+    a.click();
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(viewUrl);
+    alert('URL이 클립보드에 복사되었습니다.');
+  };
+
+  return(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+          <h2 className="font-extrabold text-slate-800 flex items-center gap-2">
+            <Icon name="QrCode" size={20} className="text-gov-700"/> 이용객 QR 코드
+          </h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400"><Icon name="X" size={20}/></button>
+        </div>
+        <div className="p-6 flex flex-col items-center gap-5">
+          {/* 시설명 */}
+          <div className="w-full bg-gov-50 border border-gov-200 rounded px-4 py-3 flex items-center gap-3">
+            <div className="w-9 h-9 bg-gov-800 rounded flex items-center justify-center shrink-0">
+              <Icon name="Building2" size={18} className="text-white"/>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">시설명</p>
+              <p className="font-extrabold text-gov-900">{facility.name}</p>
+              <p className="text-xs font-mono text-gov-500">{facility.id}</p>
+            </div>
+          </div>
+          {/* QR */}
+          <div className="bg-white p-4 rounded-xl border-2 border-gov-200 shadow-inner">
+            <div ref={qrRef}/>
+          </div>
+          {/* URL */}
+          <div className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2.5 flex items-center gap-2">
+            <Icon name="Link" size={13} className="text-slate-400 shrink-0"/>
+            <p className="text-xs font-mono text-slate-600 truncate flex-1">{viewUrl}</p>
+            <button onClick={handleCopy}
+              className="px-2.5 py-1 rounded bg-gov-100 text-gov-700 text-xs font-bold hover:bg-gov-200 shrink-0 flex items-center gap-1">
+              <Icon name="Copy" size={11}/> 복사
+            </button>
+          </div>
+          {/* 안내 */}
+          <div className="w-full bg-brand-50 border border-brand-200 rounded px-4 py-3 text-xs text-slate-600 space-y-1">
+            <p className="font-bold text-brand-800 flex items-center gap-1.5 mb-1.5">
+              <Icon name="Info" size={13} className="text-brand-500"/> 이용객 QR 안내
+            </p>
+            <p>• QR 스캔 시 <strong>{facility.name}</strong> 분실물 목록으로 바로 이동</p>
+            <p>• <strong>보관중 / 반환완료</strong> 물품만 표시 (폐기 항목 자동 숨김)</p>
+            <p>• 이용객은 <strong>조회만</strong> 가능하며 수정·삭제 불가</p>
+            <p>• 시설 안내판, 입구 게시판에 부착하세요</p>
+          </div>
+        </div>
+        {/* 푸터 버튼 */}
+        <div className="px-5 py-4 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+          <button onClick={handleDownload}
+            className="py-3 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 flex items-center justify-center gap-2 shadow">
+            <Icon name="Download" size={16} className="text-white"/> PNG 저장
+          </button>
+          <button onClick={()=>window.open(viewUrl,'_blank')}
+            className="py-3 rounded border border-gov-300 text-gov-800 font-extrabold text-sm hover:bg-gov-50 flex items-center justify-center gap-2">
+            <Icon name="ExternalLink" size={16}/> 미리보기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   어드민 로그인 게이트
+══════════════════════════════════════════ */
+function AdminLogin({onLogin}){
+  const [code,setCode]=useState("");
+  const [error,setError]=useState("");
+  const inputRef=useRef(null);
+  useEffect(()=>{ inputRef.current?.focus(); },[]);
+
+  const handleSubmit=async(e)=>{
+    e?.preventDefault();
+    /* ── 로그인 시도 횟수 제한 검사 ── */
+    if(isLoginLocked()){
+      const remain=Math.ceil((getLoginState().lockedUntil-Date.now())/1000);
+      setError(`시도 횟수를 초과했습니다. ${remain}초 후 다시 시도해 주세요.`);
+      return;
+    }
+    /* ── SHA-256 해시 비교로 관리자 코드 검증 (원문 비노출) ── */
+    const isAdmin=await verifyAdminCode(code.trim());
+    if(isAdmin){
+      recordLoginAttempt(true);
+      // 관리자 접속 로그 기록
+      try { await db.collection(ACTIVITY_LOGS_COL).add({
+        type:"admin_login", detail:{method:"admin_gate"},
+        actedAt:firebase.firestore.FieldValue.serverTimestamp(),
+        dateStr:new Date().toISOString().slice(0,10),
+      }); } catch(e){}
+      onLogin();
+    } else {
+      recordLoginAttempt(false);
+      const s=getLoginState();
+      const remaining=LOGIN_MAX_ATTEMPTS-s.attempts;
+      setError(remaining>0?`관리자 코드가 올바르지 않습니다. (${remaining}회 남음)`:"시도 횟수를 초과했습니다.");
+      setCode("");
+      inputRef.current?.focus();
+    }
+  };
+
+  return(
+    <div className="gate-bg flex flex-col items-center justify-center min-h-screen px-4 py-10">
+      <div className="flex flex-col items-center mb-8 fade-in">
+        <div className="w-20 h-20 bg-gov-800 rounded flex items-center justify-center mb-4 border-2 border-brand-500 shadow-md">
+          <Icon name="ShieldCheck" size={40} className="text-white"/>
+        </div>
+        <h1 className="text-gov-900 text-2xl font-extrabold tracking-tight">관리자 대시보드</h1>
+        <p className="text-slate-500 text-sm mt-1">Lost &amp; Found — Super Admin</p>
+      </div>
+      <div className="gate-card w-full max-w-sm fade-in">
+        <div className="bg-gov-800 px-8 py-6 text-center">
+          <div className="w-12 h-12 bg-brand-500 rounded flex items-center justify-center mx-auto mb-3">
+            <Icon name="KeyRound" size={24} className="text-white"/>
+          </div>
+          <h2 className="text-lg font-extrabold text-white">관리자 코드 입력</h2>
+          <p className="text-gov-300 text-sm mt-1">전체 관리자 전용 접근 코드를 입력하세요</p>
+        </div>
+        <div className="p-8">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <input
+                ref={inputRef}
+                type="password"
+                value={code}
+                onChange={e=>{setCode(e.target.value);setError("");}}
+                placeholder="관리자 코드 입력"
+                className="w-full border-2 border-slate-200 rounded px-4 py-3 text-center text-lg font-bold tracking-widest focus:outline-none focus:border-gov-700 transition"
+                autoComplete="off"
+              />
+              {error&&<p className="text-red-500 text-xs mt-2 text-center font-semibold">{error}</p>}
+            </div>
+            <button type="submit"
+              className="w-full py-3 rounded bg-gov-800 text-white font-extrabold text-base hover:bg-gov-900 flex items-center justify-center gap-2 shadow transition">
+              <Icon name="LogIn" size={18} className="text-white"/> 관리자 입장
+            </button>
+          </form>
+          <div className="mt-5 text-center">
+            <a href="lost_and_found_v1.html" className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-gov-700 transition">
+              <Icon name="ArrowLeft" size={12}/> 시설 게이트로 돌아가기
+            </a>
+          </div>
+        </div>
+      </div>
+      {/* 법적 필수 푸터 */}
+      <div className="mt-8 text-center space-y-1">
+        <p className="text-slate-400 text-xs">운영기관: 청주도시공사 | 문의: 043-820-7242</p>
+        <p className="text-xs">
+          <a href="privacy_policy.html" className="text-slate-400 hover:text-gov-600 underline">개인정보 처리방침</a>
+          <span className="text-slate-300 mx-1.5">|</span>
+          <a href="terms_of_use.html" className="text-slate-400 hover:text-gov-600 underline">이용약관</a>
+        </p>
+        <p className="text-slate-400 text-xs">© 2026 청주도시공사 분실물 통합 관리 시스템</p>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   시설 생성 모달
+══════════════════════════════════════════ */
+function CreateFacilityModal({onClose,onCreated,showToast,existingCodes}){
+  const [name,setName]=useState("");
+  const [code,setCode]=useState("");
+  const [alias,setAlias]=useState("");
+  const [saving,setSaving]=useState(false);
+  const refName=useRef(null),refCode=useRef(null),refAlias=useRef(null);
+  useEffect(()=>{ refName.current?.focus(); },[]);
+
+  const autoGenCode=()=>{
+    const nums=existingCodes.filter(c=>c.match(/^a\d+$/)).map(c=>parseInt(c.slice(1))).filter(n=>!isNaN(n));
+    const next=(nums.length>0?Math.max(...nums):0)+1;
+    setCode("a"+String(next).padStart(2,"0"));
+  };
+
+  const handleSubmit=async(e)=>{
+    e?.preventDefault();
+    if(!name.trim()){showToast("시설명을 입력해 주세요.","error");return;}
+    if(!code.trim()){showToast("시설 코드를 입력해 주세요.","error");return;}
+    const codeVal=code.trim().toLowerCase();
+    if(existingCodes.includes(codeVal)){showToast("이미 사용 중인 코드입니다.","error");return;}
+    setSaving(true);
+    try {
+      await db.collection(FACILITIES_COL).doc(codeVal).set({
+        name:name.trim(), facilityCode:codeVal, accessCode:codeVal,
+        alias:alias.trim()?alias.trim().split(/[,，\s]+/).map(a=>a.trim()).filter(Boolean):[],
+        createdAt:firebase.firestore.FieldValue.serverTimestamp(), active:true,
+      });
+      showToast(`✅ 시설 "${name.trim()}" (${codeVal}) 생성 완료`); onCreated();
+    } catch(err){showToast("생성 오류: "+err.message,"error");}
+    finally{setSaving(false);}
+  };
+
+  return(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+          <h2 className="font-extrabold text-slate-800 flex items-center gap-2"><Icon name="PlusCircle" size={20} className="text-gov-700"/> 새 시설 등록</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400"><Icon name="X" size={20}/></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">시설명 <span className="text-red-500">*</span></label>
+              <input ref={refName} type="text" value={name} onChange={e=>setName(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();refCode.current?.focus();}}}
+                placeholder="예) 가경 수영장, 봉명 스포츠센터"
+                className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400"/>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">시설 코드 <span className="text-red-500">*</span><span className="ml-2 text-xs text-slate-400 font-normal">(소문자 영문+숫자, 예: a01)</span></label>
+              <div className="flex gap-2">
+                <input ref={refCode} type="text" value={code} onChange={e=>setCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g,""))}
+                  onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();refAlias.current?.focus();}}}
+                  placeholder="예) a01, a02, gym01"
+                  className="flex-1 border border-slate-300 rounded px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400 font-mono"/>
+                <button type="button" onClick={autoGenCode} className="px-3 py-2 rounded bg-gov-100 text-gov-700 text-xs font-bold hover:bg-gov-200 border border-gov-200 whitespace-nowrap">자동 생성</button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">별칭 <span className="text-slate-400 font-normal">(선택, 쉼표로 구분)</span></label>
+              <input ref={refAlias} type="text" value={alias} onChange={e=>setAlias(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();handleSubmit();}}}
+                placeholder="예) 가경, 가경수영장 — 이 이름으로도 로그인 가능"
+                className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400"/>
+              <p className="text-xs text-slate-400 mt-1.5">💡 별칭 입력 시 시설 담당자가 코드 대신 별칭으로도 입장 가능합니다.</p>
+            </div>
+          </div>
+          <div className="px-5 py-4 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+            <button type="button" onClick={onClose} className="py-3 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+            <button type="submit" disabled={saving} className="py-3 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2 shadow">
+              {saving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 저장 중...</>:<><Icon name="Save" size={16} className="text-white"/> 시설 등록</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   시설 수정 모달
+══════════════════════════════════════════ */
+function EditFacilityModal({facility,onClose,onSaved,showToast}){
+  const [name,setName]=useState(facility.name||"");
+  const [alias,setAlias]=useState((facility.alias||[]).join(", "));
+  const [active,setActive]=useState(facility.active!==false);
+  const [saving,setSaving]=useState(false);
+  const refName=useRef(null);
+  useEffect(()=>{ refName.current?.focus(); },[]);
+
+  const handleSave=async(e)=>{
+    e?.preventDefault();
+    if(!name.trim()){showToast("시설명을 입력해 주세요.","error");return;}
+    setSaving(true);
+    try {
+      await db.collection(FACILITIES_COL).doc(facility.id).update({
+        name:name.trim(),
+        alias:alias.trim()?alias.trim().split(/[,，\s]+/).map(a=>a.trim()).filter(Boolean):[],
+        active, updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      showToast("✅ 시설 정보가 수정되었습니다."); onSaved();
+    } catch(err){showToast("수정 오류: "+err.message,"error");}
+    finally{setSaving(false);}
+  };
+
+  return(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+          <h2 className="font-extrabold text-slate-800 flex items-center gap-2"><Icon name="Pencil" size={20} className="text-gov-700"/> 시설 정보 수정</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded text-slate-400"><Icon name="X" size={20}/></button>
+        </div>
+        <form onSubmit={handleSave}>
+          <div className="p-5 space-y-4">
+            <div className="bg-gov-50 border border-gov-200 rounded px-4 py-3 flex items-center gap-3">
+              <Icon name="Hash" size={16} className="text-gov-500"/>
+              <div><p className="text-xs text-slate-500">시설 코드 (변경 불가)</p><p className="font-extrabold text-gov-700 text-sm font-mono">{facility.id}</p></div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">시설명 <span className="text-red-500">*</span></label>
+              <input ref={refName} type="text" value={name} onChange={e=>setName(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();handleSave();}}}
+                className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400"/>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">별칭 <span className="text-slate-400 font-normal">(선택, 쉼표로 구분)</span></label>
+              <input type="text" value={alias} onChange={e=>setAlias(e.target.value)}
+                placeholder="예) 가경, 가경수영장"
+                className="w-full border border-slate-300 rounded px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400"/>
+            </div>
+            <div className="flex items-center justify-between bg-gov-50 rounded px-4 py-3 border border-gov-100">
+              <div><p className="text-sm font-bold text-slate-700">시설 활성화</p><p className="text-xs text-slate-400 mt-0.5">비활성화 시 해당 코드로 로그인 불가</p></div>
+              <button type="button" onClick={()=>setActive(p=>!p)}
+                className={`relative w-12 h-6 rounded-full transition-colors ${active?"bg-emerald-500":"bg-slate-300"}`}>
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${active?"left-7":"left-1"}`}/>
+              </button>
+            </div>
+          </div>
+          <div className="px-5 py-4 border-t border-slate-100 grid grid-cols-2 gap-3 sticky bottom-0 bg-white">
+            <button type="button" onClick={onClose} className="py-3 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+            <button type="submit" disabled={saving} className="py-3 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 flex items-center justify-center gap-2 shadow">
+              {saving?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 저장 중...</>:<><Icon name="Save" size={16} className="text-white"/> 저장</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   시설별 현황 패널 (슬라이드 드로어)
+══════════════════════════════════════════ */
+function FacilityDetailPanel({facility,onClose}){
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [filterStatus,setFilterStatus]=useState("all");
+  const [search,setSearch]=useState("");
+
+  useEffect(()=>{
+    setLoading(true);
+    const unsub=db.collection(facilityCol(facility.id)).orderBy("createdAt","desc")
+      .onSnapshot(snap=>{setItems(snap.docs.map(d=>({id:d.id,...d.data()})));setLoading(false);},()=>setLoading(false));
+    return()=>unsub();
+  },[facility.id]);
+
+  const filtered=useMemo(()=>items.filter(item=>{
+    const q=search.toLowerCase();
+    const matchSearch=!q||item.itemName?.toLowerCase().includes(q)||item.location?.toLowerCase().includes(q)||item.receiptNo?.toLowerCase().includes(q);
+    const matchStatus=filterStatus==="all"||(filterStatus==="holding"&&item.status===STATUS.HOLDING)||(filterStatus==="completed"&&item.status===STATUS.COMPLETED)||(filterStatus==="disposed"&&item.status===STATUS.DISPOSED);
+    return matchSearch&&matchStatus;
+  }),[items,search,filterStatus]);
+
+  const holding=items.filter(i=>i.status===STATUS.HOLDING).length;
+  const completed=items.filter(i=>i.status===STATUS.COMPLETED).length;
+  const disposed=items.filter(i=>i.status===STATUS.DISPOSED).length;
+  const overdue=items.filter(i=>i.status===STATUS.HOLDING&&getAgeLevel(calcElapsedDays(i))>=1).length;
+
+  return(
+    <div className="fixed inset-0 z-40 flex" onClick={onClose}>
+      <div className="flex-1 bg-black/40"/>
+      <div className="w-full max-w-xl bg-white h-full overflow-y-auto shadow-2xl fade-in flex flex-col" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 bg-gov-800 text-white sticky top-0 z-10 header-accent">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-brand-500 rounded flex items-center justify-center shrink-0"><Icon name="Building2" size={18} className="text-white"/></div>
+            <div className="min-w-0"><p className="font-extrabold truncate">{facility.name}</p><p className="text-gov-300 text-xs font-mono">{facility.id}</p></div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gov-700 rounded"><Icon name="X" size={20} className="text-white"/></button>
+        </div>
+        <div className="grid grid-cols-4 gap-2 p-4 bg-slate-50 border-b border-slate-200">
+          {[{label:"전체",value:items.length,color:"text-gov-800",f:"all"},{label:"보관중",value:holding,color:"text-blue-700",f:"holding"},{label:"수령완료",value:completed,color:"text-emerald-700",f:"completed"},{label:"폐기",value:disposed,color:"text-slate-500",f:"disposed"}].map(c=>(
+            <button key={c.f} onClick={()=>setFilterStatus(c.f)}
+              className={`rounded p-3 text-center border-2 transition ${filterStatus===c.f?"border-gov-700 bg-white shadow":"border-transparent bg-white hover:border-gov-200"}`}>
+              <p className={`text-xl font-extrabold ${c.color}`}>{c.value}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{c.label}</p>
+            </button>
+          ))}
+        </div>
+        {overdue>0&&(
+          <div className="mx-4 mt-3 bg-amber-50 border border-amber-300 rounded px-4 py-2.5 flex items-center gap-2">
+            <Icon name="AlertTriangle" size={16} className="text-amber-500 shrink-0"/>
+            <p className="text-xs font-bold text-amber-700">기간 경과 물품 <span className="text-amber-900 text-sm">{overdue}건</span> — 폐기 처리 검토 필요</p>
+          </div>
+        )}
+        <div className="px-4 py-3">
+          <div className="relative">
+            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="물품명, 장소, 접수번호 검색..."
+              className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-gov-400 bg-white"/>
+          </div>
+        </div>
+        <div className="flex-1 px-4 pb-6">
+          {loading?<Spinner/>:filtered.length===0?(
+            <div className="flex flex-col items-center py-16 text-slate-400">
+              <Icon name="PackageSearch" size={40} className="text-slate-300 mb-2"/>
+              <p className="text-sm font-bold text-slate-400">표시할 항목 없음</p>
+            </div>
+          ):(
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400 font-semibold px-1 pb-1">{filtered.length}건 표시</p>
+              {filtered.map(item=>{
+                const days=calcElapsedDays(item);
+                const lv=item.status===STATUS.HOLDING?getAgeLevel(days):0;
+                const ageCls=lv===4?"text-pink-600":lv===3?"text-red-600":lv===2?"text-orange-600":lv===1?"text-yellow-700":"text-slate-400";
+                return(
+                  <div key={item.id} className="bg-white rounded border border-slate-200 px-4 py-3 flex items-center gap-3 shadow-sm hover:shadow transition">
+                    {item.imageUrl?<img src={item.imageUrl} alt="" className="w-12 h-12 rounded object-cover border border-slate-200 shrink-0" loading="lazy"/>
+                      :<div className="w-12 h-12 rounded bg-slate-100 flex items-center justify-center shrink-0"><Icon name="Image" size={18} className="text-slate-300"/></div>}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-bold text-slate-800 truncate">{item.itemName}</span><Badge status={item.status}/></div>
+                      {item.receiptNo&&<p className="text-xs text-gov-600 font-bold">{item.receiptNo}</p>}
+                      <p className="text-xs text-slate-500 truncate">{item.location} · {formatDate(item.foundDate)}</p>
+                      {lv>0&&<p className={`text-xs font-bold mt-0.5 ${ageCls}`}>{days}일 경과</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   실시간 현황 패널
+══════════════════════════════════════════ */
+function RealtimePanel({facilities}){
+  const [activityLogs,setActivityLogs]=useState([]);
+  const [visitLogs,setVisitLogs]=useState([]);      // 최근 100건 (화면 표시용)
+  const [totalVisitCount,setTotalVisitCount]=useState(null); // 전체 누적 수
+  const [loadingA,setLoadingA]=useState(true);
+  const [loadingV,setLoadingV]=useState(true);
+  const [loadingTotal,setLoadingTotal]=useState(true);
+  const [onlineCount,setOnlineCount]=useState(0);
+
+  /* ── 최신 활동 로그 실시간 구독 ── */
+  useEffect(()=>{
+    const unsub=db.collection(ACTIVITY_LOGS_COL)
+      .orderBy("actedAt","desc").limit(30)
+      .onSnapshot(snap=>{
+        setActivityLogs(snap.docs.map(d=>({id:d.id,...d.data()})));
+        setLoadingA(false);
+      },()=>setLoadingA(false));
+    return()=>unsub();
+  },[]);
+
+  /* ── 방문 로그 실시간 구독 (최근 100건, 화면 표시 + 오늘/이달 집계) ── */
+  useEffect(()=>{
+    const unsub=db.collection(VISIT_LOGS_COL)
+      .orderBy("visitedAt","desc").limit(100)
+      .onSnapshot(snap=>{
+        const docs=snap.docs.map(d=>({id:d.id,...d.data()}));
+        setVisitLogs(docs);
+        const fiveMinAgo=Date.now()-5*60*1000;
+        const onlineSessions=new Set(
+          docs.filter(d=>{
+            const t=d.visitedAt?.toDate?d.visitedAt.toDate().getTime():0;
+            return t>fiveMinAgo;
+          }).map(d=>d.sessionId)
+        );
+        setOnlineCount(onlineSessions.size);
+        setLoadingV(false);
+      },()=>setLoadingV(false));
+    return()=>unsub();
+  },[]);
+
+  /* ── 전체 누적 접속 수: Firestore count() 집계 (주기적 폴링 30초) ── */
+  useEffect(()=>{
+    let cancelled=false;
+    async function fetchTotal(){
+      try {
+        // Firestore count() 집계 쿼리 (Firebase JS SDK v9 compat 방식)
+        const snap=await db.collection(VISIT_LOGS_COL).get();
+        if(!cancelled) setTotalVisitCount(snap.size);
+      } catch(e){
+        // count() 미지원 환경 대비: 문서 수로 fallback
+        try {
+          const snap=await db.collection(VISIT_LOGS_COL).get();
+          if(!cancelled) setTotalVisitCount(snap.size);
+        } catch(e2){ if(!cancelled) setTotalVisitCount(null); }
+      } finally { if(!cancelled) setLoadingTotal(false); }
+    }
+    fetchTotal();
+    const interval=setInterval(fetchTotal, 30000); // 30초마다 갱신
+    return()=>{ cancelled=true; clearInterval(interval); };
+  },[]);
+
+  /* ── 오늘 방문 / 이번 달 방문 집계 ── */
+  const todayStr=new Date().toISOString().slice(0,10);
+  const thisMonthStr=new Date().toISOString().slice(0,7);
+  const todayVisits=visitLogs.filter(v=>v.dateStr===todayStr).length;
+  const monthVisits=visitLogs.filter(v=>v.dateStr?.startsWith(thisMonthStr)).length;
+
+  /* ── 오늘 등록 분실물 수 ── */
+  const todayRegistered=activityLogs.filter(a=>a.type==="register"&&a.dateStr===todayStr).length;
+
+  /* ── 전체 누적 표시 문자 ── */
+  const totalLabel=loadingTotal?"...":totalVisitCount!==null?totalVisitCount.toLocaleString():"-";
+
+  /* ── 상대 시간 표시 ── */
+  function relTime(ts){
+    if(!ts?.toDate) return "-";
+    const diff=Math.floor((Date.now()-ts.toDate().getTime())/1000);
+    if(diff<60) return `${diff}초 전`;
+    if(diff<3600) return `${Math.floor(diff/60)}분 전`;
+    if(diff<86400) return `${Math.floor(diff/3600)}시간 전`;
+    return `${Math.floor(diff/86400)}일 전`;
+  }
+
+  /* ── 활동 타입 아이콘/라벨/색 ── */
+  function actTypeInfo(type){
+    if(type==="register") return {icon:"PlusCircle",label:"신규 등록",color:"text-gov-700",bg:"bg-gov-50"};
+    if(type==="complete") return {icon:"CheckCircle",label:"수령 완료",color:"text-emerald-700",bg:"bg-emerald-50"};
+    if(type==="dispose")  return {icon:"Archive",label:"폐기 처리",color:"text-slate-500",bg:"bg-slate-100"};
+    if(type==="delete")   return {icon:"Trash2",label:"삭제",color:"text-red-600",bg:"bg-red-50"};
+    return {icon:"Activity",label:type,color:"text-slate-500",bg:"bg-slate-100"};
+  }
+
+  return(
+    <div className="space-y-5 fade-in">
+
+      {/* ── 카운터 카드 5개 (2+3 레이아웃) ── */}
+      {/* 첫 행: 현재 온라인 + 전체 누적 접속 */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* 현재 온라인 */}
+        <div className="bg-white rounded border-2 border-emerald-300 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shrink-0 shadow-md">
+            <Icon name="Wifi" size={24} className="text-white"/>
+          </div>
+          <div>
+            <p className="text-3xl font-extrabold text-emerald-700 leading-tight">{onlineCount}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">현재 온라인</p>
+            <p className="text-[10px] text-slate-400">최근 5분 이내 접속</p>
+          </div>
+        </div>
+        {/* 전체 누적 접속 수 */}
+        <div className="bg-white rounded border-2 border-gov-300 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-12 h-12 bg-gov-800 rounded-full flex items-center justify-center shrink-0 shadow-md">
+            <Icon name="DatabaseZap" size={24} className="text-white"/>
+          </div>
+          <div>
+            <p className="text-3xl font-extrabold text-gov-800 leading-tight">{totalLabel}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">전체 누적 접속</p>
+            <p className="text-[10px] text-slate-400">서비스 오픈 이후 합계</p>
+          </div>
+        </div>
+      </div>
+      {/* 두 번째 행: 오늘 방문 + 이번 달 방문 + 오늘 등록 */}
+      <div className="grid grid-cols-3 gap-4">
+        {/* 오늘 방문 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-11 h-11 bg-brand-500 rounded-full flex items-center justify-center shrink-0 shadow-md">
+            <Icon name="UserCheck" size={22} className="text-white"/>
+          </div>
+          <div>
+            <p className="text-2xl font-extrabold text-brand-600">{todayVisits}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">오늘 방문</p>
+            <p className="text-[10px] text-slate-400">{todayStr}</p>
+          </div>
+        </div>
+        {/* 이번 달 방문 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-11 h-11 bg-gov-600 rounded-full flex items-center justify-center shrink-0 shadow-md">
+            <Icon name="CalendarDays" size={22} className="text-white"/>
+          </div>
+          <div>
+            <p className="text-2xl font-extrabold text-gov-700">{monthVisits}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">이번 달 방문</p>
+            <p className="text-[10px] text-slate-400">{thisMonthStr}</p>
+          </div>
+        </div>
+        {/* 오늘 등록 물품 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-11 h-11 bg-blue-600 rounded-full flex items-center justify-center shrink-0 shadow-md">
+            <Icon name="PackagePlus" size={22} className="text-white"/>
+          </div>
+          <div>
+            <p className="text-2xl font-extrabold text-blue-700">{todayRegistered}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">오늘 등록 물품</p>
+            <p className="text-[10px] text-slate-400">신규 분실물 접수</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+        {/* ── 최근 활동 로그 ── */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 bg-gov-800 text-white header-accent">
+            <div className="w-6 h-6 bg-brand-500 rounded flex items-center justify-center shrink-0">
+              <Icon name="Activity" size={13} className="text-white"/>
+            </div>
+            <p className="font-extrabold text-sm">최근 활동 로그</p>
+            <span className="ml-auto bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">실시간</span>
+          </div>
+          {loadingA?(
+            <div className="flex justify-center py-10"><div className="w-6 h-6 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/></div>
+          ):activityLogs.length===0?(
+            <div className="flex flex-col items-center py-14 text-slate-400 gap-2">
+              <Icon name="InboxIcon" size={36} className="text-slate-300"/>
+              <p className="text-sm font-semibold">아직 활동 기록이 없습니다</p>
+              <p className="text-xs text-slate-300">분실물이 등록되면 여기에 표시됩니다</p>
+            </div>
+          ):(
+            <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+              {activityLogs.map(log=>{
+                const info=actTypeInfo(log.type);
+                return(
+                  <div key={log.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                    <div className={`w-7 h-7 ${info.bg} rounded-full flex items-center justify-center shrink-0 mt-0.5`}>
+                      <Icon name={info.icon} size={13} className={info.color}/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-extrabold ${info.color}`}>{info.label}</span>
+                        <span className="text-xs font-bold text-gov-700 bg-gov-50 px-1.5 py-0.5 rounded">
+                          {log.facilityName||log.facilityCode}
+                        </span>
+                      </div>
+                      {log.detail&&(
+                        <p className="text-xs text-slate-700 font-semibold mt-0.5 truncate">
+                          {log.detail.receiptNo&&<span className="text-gov-500 mr-1">{log.detail.receiptNo}</span>}
+                          {log.detail.itemName}
+                          {log.detail.location&&<span className="text-slate-400"> · {log.detail.location}</span>}
+                        </p>
+                      )}
+                      {log.detail?.registrar&&<p className="text-[11px] text-slate-400 mt-0.5">등록자: {log.detail.registrar}</p>}
+                    </div>
+                    <span className="text-[10px] text-slate-400 shrink-0 whitespace-nowrap">{relTime(log.actedAt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── 최근 접속 로그 ── */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 bg-gov-700 text-white">
+            <div className="w-6 h-6 bg-brand-500 rounded flex items-center justify-center shrink-0">
+              <Icon name="LogIn" size={13} className="text-white"/>
+            </div>
+            <p className="font-extrabold text-sm">최근 접속 기록</p>
+            <span className="ml-auto bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">최근 50건</span>
+          </div>
+          {loadingV?(
+            <div className="flex justify-center py-10"><div className="w-6 h-6 border-4 border-gov-100 border-t-gov-700 rounded-full animate-spin"/></div>
+          ):visitLogs.length===0?(
+            <div className="flex flex-col items-center py-14 text-slate-400 gap-2">
+              <Icon name="UsersRound" size={36} className="text-slate-300"/>
+              <p className="text-sm font-semibold">아직 접속 기록이 없습니다</p>
+              <p className="text-xs text-slate-300">시설 담당자가 로그인하면 표시됩니다</p>
+            </div>
+          ):(
+            <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+              {visitLogs.map(log=>{
+                const fiveMinAgo=Date.now()-5*60*1000;
+                const isOnline=log.visitedAt?.toDate&&log.visitedAt.toDate().getTime()>fiveMinAgo;
+                return(
+                  <div key={log.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                    <div className="relative shrink-0">
+                      <div className="w-8 h-8 bg-gov-100 rounded-full flex items-center justify-center">
+                        <Icon name="Building2" size={15} className="text-gov-600"/>
+                      </div>
+                      {isOnline&&(
+                        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white"/>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-700 truncate">
+                          {log.facilityName||log.facilityCode}
+                        </span>
+                        {isOnline&&<span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full shrink-0">● 온라인</span>}
+                      </div>
+                      <p className="text-xs text-slate-400 font-mono mt-0.5">{log.facilityCode}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-400 shrink-0 whitespace-nowrap">{relTime(log.visitedAt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── 시설별 오늘 활동 요약 ── */}
+      {facilities.length>0&&(
+        <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+            <Icon name="LayoutGrid" size={15} className="text-gov-600"/>
+            <p className="font-extrabold text-gov-900 text-sm">시설별 오늘 활동 요약</p>
+            <span className="ml-auto text-xs text-slate-400">{todayStr}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full data-table">
+              <thead>
+                <tr>
+                  <th className="py-2.5 px-4 text-left">시설명</th>
+                  <th className="py-2.5 px-3 text-center">오늘 접속</th>
+                  <th className="py-2.5 px-3 text-center">오늘 등록</th>
+                  <th className="py-2.5 px-3 text-center">마지막 접속</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facilities.map(f=>{
+                  const todayV=visitLogs.filter(v=>v.facilityCode===f.id&&v.dateStr===todayStr).length;
+                  const todayR=activityLogs.filter(a=>a.facilityCode===f.id&&a.type==="register"&&a.dateStr===todayStr).length;
+                  const lastVisit=visitLogs.find(v=>v.facilityCode===f.id);
+                  return(
+                    <tr key={f.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                      <td className="py-2.5 px-4 text-sm font-bold text-gov-800">
+                        {f.name} <span className="text-xs font-mono text-slate-400 ml-1">{f.id}</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`font-extrabold text-sm ${todayV>0?"text-brand-600":"text-slate-300"}`}>{todayV}</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`font-extrabold text-sm ${todayR>0?"text-gov-700":"text-slate-300"}`}>{todayR}</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-xs text-slate-400">
+                        {lastVisit?relTime(lastVisit.visitedAt):"-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   통계 차트 컴포넌트 (Chart.js)
+══════════════════════════════════════════ */
+function StatsCharts({facilities, allItems}){
+  const barRef=useRef(null), pieRef=useRef(null), lineRef=useRef(null), hbarRef=useRef(null);
+  const barChart=useRef(null), pieChart=useRef(null), lineChart=useRef(null), hbarChart=useRef(null);
+
+  const stats=useMemo(()=>{
+    // 시설별 집계
+    const facilityStats=facilities.map(f=>{
+      const items=allItems[f.id]||[];
+      const thisMonth=new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
+      const thisMonthItems=items.filter(i=>{
+        const d=i.createdAt?.toDate?i.createdAt.toDate():new Date(i.foundDate||0);
+        return d>=thisMonth;
+      });
+      return {
+        name: f.name||f.id, code: f.id,
+        total: items.length,
+        holding: items.filter(i=>i.status===STATUS.HOLDING).length,
+        completed: items.filter(i=>i.status===STATUS.COMPLETED).length,
+        disposed: items.filter(i=>i.status===STATUS.DISPOSED).length,
+        overdue: items.filter(i=>i.status===STATUS.HOLDING&&getAgeLevel(calcElapsedDays(i))>=1).length,
+        thisMonth: thisMonthItems.length,
+      };
+    });
+
+    // Top5 (이번 달 기준)
+    const top5Month=[...facilityStats].sort((a,b)=>b.thisMonth-a.thisMonth).slice(0,5);
+    // Top5 (전체 기준)
+    const top5Total=[...facilityStats].sort((a,b)=>b.total-a.total).slice(0,5);
+
+    // 월별 등록 추이 (최근 6개월)
+    const monthlyData={};
+    const now=new Date();
+    for(let i=5;i>=0;i--){
+      const d=new Date(now.getFullYear(), now.getMonth()-i, 1);
+      const key=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}`;
+      monthlyData[key]=0;
+    }
+    Object.values(allItems).flat().forEach(item=>{
+      const d=item.createdAt?.toDate?item.createdAt.toDate():new Date(item.foundDate||0);
+      const key=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}`;
+      if(monthlyData[key]!==undefined) monthlyData[key]++;
+    });
+
+    // 카테고리별 집계
+    const catMap={};
+    CATEGORIES.forEach(c=>catMap[c.label]=0);
+    Object.values(allItems).flat().forEach(item=>{
+      const label=CATEGORY_MAP[item.category]||"기타";
+      if(catMap[label]!==undefined) catMap[label]++;
+      else catMap["기타"]=(catMap["기타"]||0)+1;
+    });
+
+    return { facilityStats, top5Month, top5Total, monthlyData, catMap };
+  },[facilities, allItems]);
+
+  useEffect(()=>{
+    // 1. 이번 달 Top5 가로 막대
+    if(hbarRef.current){
+      if(hbarChart.current) hbarChart.current.destroy();
+      const d=stats.top5Month;
+      hbarChart.current=new Chart(hbarRef.current,{
+        type:'bar',
+        data:{
+          labels:d.map(f=>f.name),
+          datasets:[{
+            label:'이번 달 등록 건수',
+            data:d.map(f=>f.thisMonth),
+            backgroundColor:['#1a2b5e','#233c7d','#2d4a94','#3a5caa','#5577bc'],
+            borderRadius:3,
+          }]
+        },
+        options:{
+          indexAxis:'y',
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.parsed.x}건`}}},
+          scales:{x:{grid:{color:'#eef1f8'},ticks:{color:'#666',font:{size:11}}},y:{grid:{display:false},ticks:{color:'#1a2b5e',font:{size:12,weight:'bold'}}}}
+        }
+      });
+    }
+    // 2. 전체 시설별 현황 막대
+    if(barRef.current){
+      if(barChart.current) barChart.current.destroy();
+      const d=stats.top5Total;
+      barChart.current=new Chart(barRef.current,{
+        type:'bar',
+        data:{
+          labels:d.map(f=>f.name),
+          datasets:[
+            {label:'보관중', data:d.map(f=>f.holding), backgroundColor:'#3a5caa', borderRadius:2},
+            {label:'수령완료', data:d.map(f=>f.completed), backgroundColor:'#22c55e', borderRadius:2},
+            {label:'폐기처리', data:d.map(f=>f.disposed), backgroundColor:'#94a3b8', borderRadius:2},
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}},tooltip:{mode:'index'}},
+          scales:{x:{stacked:true,grid:{display:false},ticks:{color:'#1a2b5e',font:{size:11,weight:'bold'}}},y:{stacked:true,grid:{color:'#eef1f8'},ticks:{color:'#666',font:{size:11}}}}
+        }
+      });
+    }
+    // 3. 월별 추이 라인
+    if(lineRef.current){
+      if(lineChart.current) lineChart.current.destroy();
+      lineChart.current=new Chart(lineRef.current,{
+        type:'line',
+        data:{
+          labels:Object.keys(stats.monthlyData),
+          datasets:[{
+            label:'월 등록 건수',
+            data:Object.values(stats.monthlyData),
+            borderColor:'#f06a21', backgroundColor:'rgba(240,106,33,0.1)',
+            borderWidth:2.5, pointBackgroundColor:'#f06a21', pointRadius:5, fill:true, tension:0.3
+          }]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y}건`}}},
+          scales:{x:{grid:{display:false},ticks:{color:'#666',font:{size:11}}},y:{grid:{color:'#eef1f8'},ticks:{color:'#666',font:{size:11}}}}
+        }
+      });
+    }
+    // 4. 카테고리 도넛
+    if(pieRef.current){
+      if(pieChart.current) pieChart.current.destroy();
+      const labels=Object.keys(stats.catMap).filter(k=>stats.catMap[k]>0);
+      const data=labels.map(k=>stats.catMap[k]);
+      const colors=['#1a2b5e','#f06a21','#22c55e','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#6b7280'];
+      pieChart.current=new Chart(pieRef.current,{
+        type:'doughnut',
+        data:{labels, datasets:[{data, backgroundColor:colors.slice(0,labels.length), borderWidth:1, borderColor:'#fff'}]},
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{position:'right',labels:{font:{size:11},boxWidth:12}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed}건`}}}
+        }
+      });
+    }
+    return()=>{
+      hbarChart.current?.destroy(); barChart.current?.destroy();
+      lineChart.current?.destroy(); pieChart.current?.destroy();
+    };
+  },[stats]);
+
+  const grandTotal=useMemo(()=>{
+    const r={total:0,holding:0,completed:0,disposed:0,overdue:0,thisMonth:0};
+    stats.facilityStats.forEach(s=>Object.keys(r).forEach(k=>r[k]+=(s[k]||0)));
+    return r;
+  },[stats]);
+
+  return(
+    <div className="space-y-5 fade-in">
+      {/* 전체 요약 */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[
+          {label:"전체 물품",value:grandTotal.total,color:"text-gov-800",bg:"bg-gov-50",border:"border-gov-200"},
+          {label:"보관중",value:grandTotal.holding,color:"text-blue-700",bg:"bg-blue-50",border:"border-blue-200"},
+          {label:"수령완료",value:grandTotal.completed,color:"text-emerald-700",bg:"bg-emerald-50",border:"border-emerald-200"},
+          {label:"기간경과",value:grandTotal.overdue,color:"text-brand-600",bg:"bg-brand-50",border:"border-brand-200"},
+          {label:"폐기처리",value:grandTotal.disposed,color:"text-slate-500",bg:"bg-slate-50",border:"border-slate-200"},
+        ].map(c=>(
+          <div key={c.label} className={`${c.bg} border ${c.border} rounded p-4 text-center`}>
+            <p className={`text-2xl font-extrabold ${c.color}`}>{c.value}</p>
+            <p className="text-xs text-slate-500 mt-0.5 font-semibold">{c.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 차트 그리드 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* 이번 달 Top5 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 bg-brand-500 rounded flex items-center justify-center"><Icon name="TrendingUp" size={14} className="text-white"/></div>
+            <div>
+              <p className="font-extrabold text-gov-900 text-sm">이번 달 분실물 Top 5 시설</p>
+              <p className="text-xs text-slate-400">{new Date().getFullYear()}년 {new Date().getMonth()+1}월 기준</p>
+            </div>
+          </div>
+          <div className="chart-container" style={{height:"200px"}}>
+            <canvas ref={hbarRef}/>
+          </div>
+          {stats.top5Month.every(f=>f.thisMonth===0)&&(
+            <p className="text-center text-xs text-slate-400 mt-2">이번 달 등록된 물품이 없습니다</p>
+          )}
+        </div>
+
+        {/* 월별 추이 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 bg-gov-800 rounded flex items-center justify-center"><Icon name="LineChart" size={14} className="text-white"/></div>
+            <div>
+              <p className="font-extrabold text-gov-900 text-sm">월별 분실물 등록 추이</p>
+              <p className="text-xs text-slate-400">최근 6개월</p>
+            </div>
+          </div>
+          <div className="chart-container" style={{height:"200px"}}>
+            <canvas ref={lineRef}/>
+          </div>
+        </div>
+
+        {/* 시설별 현황 누적 막대 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 bg-gov-700 rounded flex items-center justify-center"><Icon name="BarChart3" size={14} className="text-white"/></div>
+            <div>
+              <p className="font-extrabold text-gov-900 text-sm">시설별 처리 현황 (전체 Top 5)</p>
+              <p className="text-xs text-slate-400">상태별 누적 막대</p>
+            </div>
+          </div>
+          <div className="chart-container" style={{height:"200px"}}>
+            <canvas ref={barRef}/>
+          </div>
+        </div>
+
+        {/* 카테고리 도넛 */}
+        <div className="bg-white rounded border border-slate-200 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 bg-emerald-600 rounded flex items-center justify-center"><Icon name="PieChart" size={14} className="text-white"/></div>
+            <div>
+              <p className="font-extrabold text-gov-900 text-sm">카테고리별 분포</p>
+              <p className="text-xs text-slate-400">전체 시설 통합</p>
+            </div>
+          </div>
+          <div className="chart-container" style={{height:"200px"}}>
+            <canvas ref={pieRef}/>
+          </div>
+        </div>
+      </div>
+
+      {/* 시설별 상세 테이블 */}
+      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+          <Icon name="Table" size={15} className="text-gov-600"/>
+          <p className="font-extrabold text-gov-900 text-sm">시설별 상세 통계</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full data-table">
+            <thead>
+              <tr>
+                <th className="py-2.5 px-4 text-left">시설명</th>
+                <th className="py-2.5 px-3 text-center">전체</th>
+                <th className="py-2.5 px-3 text-center">보관중</th>
+                <th className="py-2.5 px-3 text-center">수령완료</th>
+                <th className="py-2.5 px-3 text-center">기간경과</th>
+                <th className="py-2.5 px-3 text-center">폐기</th>
+                <th className="py-2.5 px-3 text-center">이번달</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.facilityStats.map(f=>(
+                <tr key={f.code} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                  <td className="py-2.5 px-4 text-sm font-bold text-gov-800">{f.name}<span className="ml-2 text-xs font-mono text-slate-400">{f.code}</span></td>
+                  <td className="py-2.5 px-3 text-center text-sm font-extrabold text-gov-900">{f.total}</td>
+                  <td className="py-2.5 px-3 text-center"><span className="text-blue-700 font-bold text-sm">{f.holding}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className="text-emerald-700 font-bold text-sm">{f.completed}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className={`font-bold text-sm ${f.overdue>0?"text-brand-600":"text-slate-400"}`}>{f.overdue}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className="text-slate-400 font-bold text-sm">{f.disposed}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className={`font-bold text-sm ${f.thisMonth>0?"text-gov-700":"text-slate-400"}`}>{f.thisMonth}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   CSV / 엑셀 내보내기 & 업로드
+══════════════════════════════════════════ */
+function DataIOPanel({facilities, allItems, showToast}){
+  const [uploading, setUploading]=useState(false);
+  const [uploadResult, setUploadResult]=useState(null);
+  const [selectedFacForUpload, setSelectedFacForUpload]=useState("");
+  const [previewRows, setPreviewRows]=useState([]);
+  const [showPreview, setShowPreview]=useState(false);
+  const fileInputRef=useRef(null);
+
+  /* ── 내보내기 ── */
+  const exportCSV=(targetFac)=>{
+    const items = targetFac==="all"
+      ? Object.values(allItems).flat()
+      : (allItems[targetFac]||[]);
+
+    if(items.length===0){showToast("내보낼 데이터가 없습니다.","error");return;}
+
+    const facName=targetFac==="all"?"전체":facilities.find(f=>f.id===targetFac)?.name||targetFac;
+    const rows=items.map(item=>({
+      "시설코드":item.facilityCode||"",
+      "시설명":facilities.find(f=>f.id===item.facilityCode)?.name||item.facilityCode||"",
+      "접수번호":item.receiptNo||"",
+      "물품명":item.itemName||"",
+      "카테고리":CATEGORY_MAP[item.category]||item.category||"",
+      "습득장소":item.location||"",
+      "습득일자":item.foundDate||"",
+      "등록자":item.registrar||"",
+      "상태":item.status||"",
+      "메모":item.memo||"",
+      "수령일":item.receivedDate||"",
+      "수령인":item.receiverName||"",
+      "수령인연락처":item.receiverContact||"",
+      "반출담당자":item.handlerName||"",
+      "폐기일":item.disposedDate||"",
+      "폐기처리자":item.disposedBy||"",
+      "폐기사유":item.disposedReason||"",
+      "등록일시":item.createdAt?.toDate?item.createdAt.toDate().toLocaleString("ko-KR"):"",
+    }));
+
+    const ws=XLSX.utils.json_to_sheet(rows);
+    // 컬럼 너비 자동 설정
+    const wscols=Object.keys(rows[0]||{}).map(k=>({wch:Math.max(k.length,12)}));
+    ws["!cols"]=wscols;
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"분실물목록");
+    const dateStr=today().replace(/-/g,"");
+    XLSX.writeFile(wb,`분실물_${facName}_${dateStr}.xlsx`);
+    showToast(`✅ ${items.length}건 엑셀 파일 다운로드 완료`);
+  };
+
+  /* ── 엑셀 파일 파싱 & 미리보기 ── */
+  const handleFileSelect=(e)=>{
+    const f=e.target.files[0]; if(!f) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try {
+        const wb=XLSX.read(ev.target.result,{type:"binary"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
+        setPreviewRows(rows);
+        setShowPreview(true);
+      } catch(err){showToast("파일 읽기 오류: "+err.message,"error");}
+    };
+    reader.readAsBinaryString(f);
+    e.target.value=""; // reset
+  };
+
+  /* ── Firebase 임포트 ── */
+  const handleUpload=async()=>{
+    if(!selectedFacForUpload){showToast("업로드할 시설을 선택해 주세요.","error");return;}
+    if(previewRows.length===0){showToast("업로드할 데이터가 없습니다.","error");return;}
+    setUploading(true);
+    setUploadResult(null);
+    let success=0, fail=0;
+    try {
+      // 500건씩 배치
+      const chunks=[];
+      for(let i=0;i<previewRows.length;i+=400) chunks.push(previewRows.slice(i,i+400));
+      for(const chunk of chunks){
+        const batch=db.batch();
+        for(const row of chunk){
+          try {
+            const docRef=db.collection(facilityCol(selectedFacForUpload)).doc();
+            const data={
+              facilityCode: selectedFacForUpload,
+              receiptNo: String(row["접수번호"]||""),
+              itemName: String(row["물품명"]||""),
+              category: Object.entries(CATEGORY_MAP).find(([k,v])=>v===(row["카테고리"]||""))?.[0]||"other",
+              location: String(row["습득장소"]||row["습득 장소"]||""),
+              foundDate: String(row["습득일자"]||row["습득 일자"]||""),
+              registrar: String(row["등록자"]||""),
+              status: Object.values(STATUS).includes(row["상태"])?row["상태"]:STATUS.HOLDING,
+              memo: String(row["메모"]||""),
+              imageUrl: "",
+              receivedDate: String(row["수령일"]||""),
+              receiverName: String(row["수령인"]||""),
+              receiverContact: String(row["수령인연락처"]||""),
+              handlerName: String(row["반출담당자"]||""),
+              disposedDate: String(row["폐기일"]||""),
+              disposedBy: String(row["폐기처리자"]||""),
+              disposedReason: String(row["폐기사유"]||""),
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            };
+            batch.set(docRef, data);
+            success++;
+          } catch(e){ fail++; }
+        }
+        await batch.commit();
+      }
+      setUploadResult({success, fail});
+      showToast(`✅ ${success}건 업로드 완료${fail>0?` (오류 ${fail}건)`:""}`);
+      setShowPreview(false);
+      setPreviewRows([]);
+    } catch(err){showToast("업로드 오류: "+err.message,"error");}
+    finally{setUploading(false);}
+  };
+
+  const totalItems=Object.values(allItems).flat().length;
+
+  return(
+    <div className="space-y-5 fade-in">
+      {/* 내보내기 섹션 */}
+      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-gov-800 text-white flex items-center gap-2 header-accent">
+          <Icon name="Download" size={16} className="text-brand-400"/>
+          <p className="font-extrabold text-sm">데이터 내보내기 (엑셀 다운로드)</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-gov-50 border border-gov-200 rounded p-4 text-sm text-gov-700">
+            <p className="font-bold flex items-center gap-1.5 mb-2"><Icon name="Info" size={14} className="text-gov-500"/> 내보내기 안내</p>
+            <ul className="text-xs space-y-1 text-gov-600 list-disc pl-4">
+              <li>물품명, 카테고리, 습득장소, 상태, 수령/폐기 정보 등 전체 컬럼 포함</li>
+              <li>엑셀(.xlsx) 형식으로 다운로드됩니다</li>
+              <li>현재 전체 {totalItems}건의 데이터가 저장되어 있습니다</li>
+            </ul>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button onClick={()=>exportCSV("all")}
+              className="flex items-center justify-center gap-2 py-3 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 shadow transition border-l-4 border-brand-500">
+              <Icon name="FileSpreadsheet" size={17} className="text-brand-400"/>
+              전체 시설 내보내기 ({totalItems}건)
+            </button>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-600">시설별 개별 내보내기</p>
+              <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                {facilities.map(f=>{
+                  const cnt=(allItems[f.id]||[]).length;
+                  return(
+                    <button key={f.id} onClick={()=>exportCSV(f.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded border border-gov-200 text-gov-800 text-xs font-bold hover:bg-gov-50 transition">
+                      <Icon name="FileDown" size={13} className="text-gov-500"/>
+                      <span className="truncate">{f.name||f.id}</span>
+                      <span className="ml-auto text-slate-400 shrink-0">{cnt}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 업로드 섹션 */}
+      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-gov-700 text-white flex items-center gap-2">
+          <Icon name="Upload" size={16} className="text-brand-400"/>
+          <p className="font-extrabold text-sm">데이터 업로드 (엑셀 → Firebase)</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-amber-50 border border-amber-300 rounded p-4">
+            <p className="text-xs font-bold text-amber-800 flex items-center gap-1.5 mb-2"><Icon name="AlertTriangle" size={14} className="text-amber-600"/> 업로드 규칙 및 주의사항</p>
+            <ul className="text-xs text-amber-700 space-y-1 list-disc pl-4">
+              <li><strong>내보내기 파일 형식 그대로</strong> 사용하거나, 아래 컬럼명을 맞춰 주세요</li>
+              <li>필수: <code className="bg-amber-100 px-1 rounded">물품명</code>, <code className="bg-amber-100 px-1 rounded">습득장소</code> (없으면 빈칸 처리)</li>
+              <li>기존 데이터와 중복 체크 없이 추가됩니다 (접수번호 중복 주의)</li>
+              <li>이미지는 업로드되지 않으며, 상태 컬럼은 "보관중/수령완료/폐기처리" 중 하나</li>
+            </ul>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">업로드 대상 시설 <span className="text-red-500">*</span></label>
+              <select value={selectedFacForUpload} onChange={e=>setSelectedFacForUpload(e.target.value)}
+                className="w-full border border-slate-300 rounded px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gov-400 bg-white">
+                <option value="">시설 선택...</option>
+                {facilities.map(f=><option key={f.id} value={f.id}>{f.name||f.id} ({f.id})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">엑셀 파일 선택 (.xlsx, .xls, .csv)</label>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
+                onChange={handleFileSelect}
+                className="w-full border border-slate-300 rounded px-3 py-2 text-sm bg-white"/>
+            </div>
+          </div>
+          {/* 미리보기 */}
+          {showPreview&&previewRows.length>0&&(
+            <div className="border border-slate-200 rounded overflow-hidden fade-in">
+              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <p className="text-sm font-extrabold text-slate-700">미리보기 ({previewRows.length}건, 최대 5행 표시)</p>
+                <button onClick={()=>{setShowPreview(false);setPreviewRows([]);}} className="text-xs text-slate-400 hover:text-slate-600">✕ 취소</button>
+              </div>
+              <div className="overflow-x-auto max-h-52">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gov-50">
+                      {Object.keys(previewRows[0]||{}).slice(0,8).map(k=>(
+                        <th key={k} className="px-3 py-2 text-left font-bold text-gov-700 whitespace-nowrap border-b border-slate-200">{k}</th>
+                      ))}
+                      {Object.keys(previewRows[0]||{}).length>8&&<th className="px-3 py-2 text-left font-bold text-slate-400 border-b border-slate-200">...</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.slice(0,5).map((row,i)=>(
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                        {Object.values(row).slice(0,8).map((v,j)=>(
+                          <td key={j} className="px-3 py-2 text-slate-600 whitespace-nowrap max-w-[120px] truncate">{String(v)}</td>
+                        ))}
+                        {Object.values(row).length>8&&<td className="px-3 py-2 text-slate-400">...</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-4 py-3 bg-white border-t border-slate-100 flex items-center gap-3">
+                {selectedFacForUpload?(
+                  <button onClick={handleUpload} disabled={uploading}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded bg-gov-800 text-white font-extrabold text-sm hover:bg-gov-900 disabled:opacity-60 shadow transition">
+                    {uploading?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 업로드 중...</>
+                      :<><Icon name="Upload" size={15} className="text-white"/> {previewRows.length}건 Firebase에 업로드</>}
+                  </button>
+                ):(
+                  <p className="text-sm text-red-500 font-bold">⚠️ 업로드 대상 시설을 먼저 선택해 주세요</p>
+                )}
+                <span className="text-xs text-slate-400">대상: {selectedFacForUpload?facilities.find(f=>f.id===selectedFacForUpload)?.name||selectedFacForUpload:"미선택"}</span>
+              </div>
+            </div>
+          )}
+          {uploadResult&&(
+            <div className="bg-emerald-50 border border-emerald-200 rounded px-4 py-3 flex items-center gap-3 fade-in">
+              <Icon name="CheckCircle" size={20} className="text-emerald-600 shrink-0"/>
+              <div>
+                <p className="text-sm font-extrabold text-emerald-800">업로드 완료</p>
+                <p className="text-xs text-emerald-600">성공 {uploadResult.success}건{uploadResult.fail>0?` / 실패 ${uploadResult.fail}건`:""}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   메인 어드민 대시보드
+══════════════════════════════════════════ */
+function AdminDashboard({onLogout}){
+  const [facilities,setFacilities]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [allItems,setAllItems]=useState({});
+  const [loadingItems,setLoadingItems]=useState(false);
+  const [showCreate,setShowCreate]=useState(false);
+  const [editFacility,setEditFacility]=useState(null);
+  const [detailFacility,setDetailFacility]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [deleting,setDeleting]=useState(false);
+  const [qrFacility,setQrFacility]=useState(null);
+  const [filterFacility,setFilterFacility]=useState("all");
+  const [toast,setToast]=useState({msg:"",type:""});
+  const [activeTab,setActiveTab]=useState("realtime");
+
+  const showToast=(msg,type="success")=>{
+    setToast({msg,type});
+    setTimeout(()=>setToast({msg:"",type:""}),3500);
+  };
+
+  useEffect(()=>{
+    const unsub=db.collection(FACILITIES_COL).orderBy("createdAt","asc")
+      .onSnapshot(snap=>{setFacilities(snap.docs.map(d=>({id:d.id,...d.data()})));setLoading(false);},
+      err=>{showToast("데이터 로드 오류: "+err.message,"error");setLoading(false);});
+    return()=>unsub();
+  },[]);
+
+  // allItems를 통계/내보내기/전체현황 탭에서 공통 사용
+  useEffect(()=>{
+    if(activeTab==="facilities"||activeTab==="realtime") return;
+    if(facilities.length===0){setLoadingItems(false);return;}
+    setLoadingItems(true);
+    const unsubList=[];
+    const newItems={};
+    let resolved=0;
+    const total=facilities.length;
+    facilities.forEach(f=>{
+      const unsub=db.collection(facilityCol(f.id)).orderBy("createdAt","desc")
+        .onSnapshot(snap=>{
+          newItems[f.id]=snap.docs.map(d=>({id:d.id,...d.data()}));
+          resolved++;
+          if(resolved>=total){setAllItems({...newItems});setLoadingItems(false);}
+        },()=>{resolved++;if(resolved>=total){setAllItems({...newItems});setLoadingItems(false);}});
+      unsubList.push(unsub);
+    });
+    return()=>unsubList.forEach(u=>u());
+  },[activeTab,facilities.length]);
+
+  const handleDelete=async(facility)=>{
+    setDeleting(true);
+    try {
+      const itemSnap=await db.collection(facilityCol(facility.id)).limit(500).get();
+      if(!itemSnap.empty){const batch=db.batch();itemSnap.docs.forEach(d=>batch.delete(d.ref));await batch.commit();}
+      await db.collection(FACILITIES_COL).doc(facility.id).delete();
+      showToast(`시설 "${facility.name}" 삭제 완료`); setConfirmDel(null);
+    } catch(err){showToast("삭제 오류: "+err.message,"error");}
+    finally{setDeleting(false);}
+  };
+
+  const aggrStats=useMemo(()=>{
+    const result={};
+    Object.entries(allItems).forEach(([fc,items])=>{
+      result[fc]={
+        total:items.length,
+        holding:items.filter(i=>i.status===STATUS.HOLDING).length,
+        completed:items.filter(i=>i.status===STATUS.COMPLETED).length,
+        disposed:items.filter(i=>i.status===STATUS.DISPOSED).length,
+        overdue:items.filter(i=>i.status===STATUS.HOLDING&&getAgeLevel(calcElapsedDays(i))>=1).length,
+      };
+    });
+    return result;
+  },[allItems]);
+
+  const grandTotal=useMemo(()=>{
+    const r={total:0,holding:0,completed:0,disposed:0,overdue:0};
+    Object.values(aggrStats).forEach(s=>Object.keys(r).forEach(k=>r[k]+=(s[k]||0)));
+    return r;
+  },[aggrStats]);
+
+  const overviewItems=useMemo(()=>{
+    if(filterFacility==="all") return Object.values(allItems).flat();
+    return allItems[filterFacility]||[];
+  },[allItems,filterFacility]);
+
+  const existingCodes=facilities.map(f=>f.id);
+
+  const TABS=[
+    {id:"realtime",label:"실시간 현황",icon:"Radio"},
+    {id:"facilities",label:"시설 관리",icon:"Building2"},
+    {id:"overview",label:"전체 현황",icon:"List"},
+    {id:"stats",label:"통계 대시보드",icon:"BarChart3"},
+    {id:"dataio",label:"엑셀 내보내기/업로드",icon:"FileSpreadsheet"},
+  ];
+
+  return(
+    <div className="min-h-screen bg-[#f4f6fa]">
+      {/* 헤더 */}
+      <header className="bg-gov-800 text-white sticky top-0 z-30 shadow-md header-accent">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-brand-500 rounded flex items-center justify-center shrink-0">
+              <Icon name="ShieldCheck" size={20} className="text-white"/>
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-extrabold text-base leading-tight">전체 관리자 대시보드</h1>
+              <p className="text-gov-300 text-xs">분실물 통합 관리 시스템 — Super Admin</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href="lost_and_found_v1.html" className="flex items-center gap-1.5 px-3 py-2 rounded bg-gov-700 text-white text-sm font-bold hover:bg-gov-600 border border-gov-600 transition">
+              <Icon name="ArrowLeft" size={15} className="text-white"/>
+              <span className="hidden sm:inline">시설 게이트</span>
+            </a>
+            <button onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-2 rounded bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition">
+              <Icon name="LogOut" size={15} className="text-white"/>
+              <span className="hidden sm:inline">로그아웃</span>
+            </button>
+          </div>
+        </div>
+        {/* 탭 */}
+        <div className="max-w-7xl mx-auto px-4 pb-0">
+          <div className="flex gap-1 border-b border-gov-700 overflow-x-auto">
+            {TABS.map(t=>(
+              <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold border-b-2 transition whitespace-nowrap ${activeTab===t.id?"border-brand-400 text-white":"border-transparent text-gov-300 hover:text-white"}`}>
+                <Icon name={t.icon} size={14}/> {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-5 space-y-5">
+
+        {/* ── 탭: 실시간 현황 ── */}
+        {activeTab==="realtime"&&(
+          <RealtimePanel facilities={facilities}/>
+        )}
+
+        {/* ── 탭: 시설 관리 ── */}
+        {activeTab==="facilities"&&(
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <div><h2 className="text-lg font-extrabold text-slate-800">시설 목록</h2><p className="text-xs text-slate-500 mt-0.5">총 {facilities.length}개 시설 등록됨</p></div>
+              <button onClick={()=>setShowCreate(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gov-800 text-white rounded font-extrabold text-sm hover:bg-gov-900 shadow transition border-l-4 border-brand-500">
+                <Icon name="Plus" size={16} className="text-white"/> 새 시설 등록
+              </button>
+            </div>
+            {loading?<Spinner/>:facilities.length===0?(
+              <div className="flex flex-col items-center py-20 text-slate-400 bg-white rounded border border-slate-200">
+                <Icon name="Building2" size={48} className="text-slate-300 mb-3"/>
+                <p className="font-bold text-slate-500">등록된 시설이 없습니다</p>
+                <button onClick={()=>setShowCreate(true)} className="mt-4 px-5 py-2.5 bg-gov-800 text-white rounded font-bold text-sm hover:bg-gov-900">첫 시설 등록하기</button>
+              </div>
+            ):(
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {facilities.map(f=>(
+                  <div key={f.id} className={`bg-white rounded border-2 shadow-sm facility-card ${f.active===false?"border-slate-200 opacity-60":"border-slate-200 hover:border-gov-300"}`}>
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`w-9 h-9 rounded flex items-center justify-center shrink-0 ${f.active===false?"bg-slate-300":"bg-gov-800"}`}>
+                          <Icon name="Building2" size={18} className="text-white"/>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-slate-800 truncate">{f.name||"-"}</p>
+                          <p className="text-xs text-gov-600 font-mono font-bold">{f.id}</p>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${f.active===false?"bg-slate-100 text-slate-500":"bg-emerald-100 text-emerald-700"}`}>
+                        {f.active===false?"비활성":"활성"}
+                      </span>
+                    </div>
+                    <div className="px-4 py-3 space-y-2">
+                      {f.alias?.length>0&&(
+                        <div className="flex flex-wrap gap-1">
+                          {f.alias.map((a,i)=><span key={i} className="text-xs bg-brand-100 text-brand-700 font-semibold px-2 py-0.5 rounded">{a}</span>)}
+                        </div>
+                      )}
+                      <div className="bg-gov-50 rounded px-3 py-2 flex items-center gap-2 border border-gov-100">
+                        <Icon name="KeyRound" size={13} className="text-gov-500"/>
+                        <div className="flex-1 min-w-0"><p className="text-xs text-slate-400">입장 코드</p><p className="text-sm font-extrabold text-gov-800 font-mono">{f.id}</p></div>
+                        <button onClick={()=>{navigator.clipboard?.writeText(f.id);showToast("코드 복사됨");}} className="p-1.5 hover:bg-slate-200 rounded text-slate-400"><Icon name="Copy" size={13}/></button>
+                      </div>
+                      <p className="text-xs text-slate-400">등록일: {f.createdAt?.toDate?formatDate(f.createdAt.toDate().toISOString().slice(0,10)):"-"}</p>
+                    </div>
+                    <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2">
+                      <button onClick={()=>setDetailFacility(f)} className="flex-1 py-2 rounded bg-gov-800 text-white text-xs font-bold hover:bg-gov-900 flex items-center justify-center gap-1.5 transition">
+                        <Icon name="Eye" size={13} className="text-white"/> 물품 현황
+                      </button>
+                      <button onClick={()=>setQrFacility(f)}
+                        className="py-2 px-3 rounded border border-brand-300 text-brand-700 text-xs font-bold hover:bg-brand-50 flex items-center gap-1 transition has-tooltip" title="이용객 QR 생성">
+                        <Icon name="QrCode" size={13}/>
+                      </button>
+                      <button onClick={()=>setEditFacility(f)} className="py-2 px-3 rounded border border-slate-300 text-slate-600 text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 transition">
+                        <Icon name="Pencil" size={13}/>
+                      </button>
+                      <span className="has-tooltip">
+                        <button onClick={()=>setConfirmDel(f)} className="py-2 px-3 rounded border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 flex items-center gap-1.5 transition">
+                          <Icon name="Trash2" size={13}/>
+                        </button>
+                        <span className="tooltip-box">⚠️ 시설 및 전체 물품 데이터 삭제</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── 탭: 전체 현황 ── */}
+        {activeTab==="overview"&&(
+          <>
+            <div className="bg-gov-800 rounded p-5 text-white shadow border-l-4 border-brand-500">
+              <p className="text-gov-300 text-sm font-bold mb-3 flex items-center gap-2"><Icon name="BarChart3" size={16} className="text-gov-400"/> 전체 시설 통합 현황</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {[
+                  {label:"전체 물품",value:grandTotal.total,color:"text-white"},
+                  {label:"보관중",value:grandTotal.holding,color:"text-blue-300"},
+                  {label:"수령완료",value:grandTotal.completed,color:"text-emerald-300"},
+                  {label:"기간 경과",value:grandTotal.overdue,color:"text-yellow-300"},
+                  {label:"폐기처리",value:grandTotal.disposed,color:"text-slate-400"},
+                ].map(c=>(
+                  <div key={c.label} className="bg-white/10 rounded p-3 text-center">
+                    <p className={`text-2xl font-extrabold ${c.color}`}>{c.value}</p>
+                    <p className="text-gov-300 text-xs mt-0.5">{c.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <button onClick={()=>setFilterFacility("all")}
+                className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold border transition ${filterFacility==="all"?"bg-gov-800 text-white border-gov-800":"bg-white text-slate-600 border-slate-200 hover:border-gov-300"}`}>
+                전체 ({facilities.length}개 시설)
+              </button>
+              {facilities.map(f=>(
+                <button key={f.id} onClick={()=>setFilterFacility(f.id)}
+                  className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold border transition ${filterFacility===f.id?"bg-gov-800 text-white border-gov-800":"bg-white text-slate-600 border-slate-200 hover:border-gov-300"}`}>
+                  {f.name||f.id}
+                </button>
+              ))}
+            </div>
+            {loadingItems?<Spinner/>:(
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(filterFacility==="all"?facilities:facilities.filter(f=>f.id===filterFacility)).map(f=>{
+                    const s=aggrStats[f.id]||{total:0,holding:0,completed:0,disposed:0,overdue:0};
+                    return(
+                      <div key={f.id} className="bg-white rounded border border-slate-200 shadow-sm hover:shadow transition overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-3 bg-gov-50 border-b border-gov-100 border-l-4 border-l-gov-700">
+                          <div className="w-8 h-8 bg-gov-800 rounded flex items-center justify-center shrink-0"><Icon name="Building2" size={16} className="text-white"/></div>
+                          <div className="min-w-0 flex-1"><p className="font-extrabold text-gov-900 truncate">{f.name||f.id}</p><p className="text-xs text-gov-600 font-mono">{f.id}</p></div>
+                          <button onClick={()=>setDetailFacility(f)} className="px-2.5 py-1.5 rounded bg-gov-800 text-white text-xs font-bold hover:bg-gov-900 flex items-center gap-1 shrink-0">
+                            <Icon name="Eye" size={11} className="text-white"/> 상세
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-4 gap-0 p-3">
+                          {[{label:"전체",value:s.total,color:"text-gov-800"},{label:"보관중",value:s.holding,color:"text-blue-700"},{label:"수령완료",value:s.completed,color:"text-emerald-700"},{label:"폐기",value:s.disposed,color:"text-slate-500"}].map(c=>(
+                            <div key={c.label} className="text-center py-2"><p className={`text-lg font-extrabold ${c.color}`}>{c.value}</p><p className="text-xs text-slate-400">{c.label}</p></div>
+                          ))}
+                        </div>
+                        {s.overdue>0&&(
+                          <div className="mx-3 mb-3 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center gap-1.5">
+                            <Icon name="Clock" size={13} className="text-amber-500"/>
+                            <p className="text-xs font-bold text-amber-700">기간 경과 {s.overdue}건</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {overviewItems.length>0&&(
+                  <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                      <p className="font-extrabold text-slate-800">
+                        {filterFacility==="all"?"전체 물품 목록":`${facilities.find(f=>f.id===filterFacility)?.name||filterFacility} 물품`}
+                        <span className="ml-2 text-sm font-normal text-slate-400">{overviewItems.length}건</span>
+                      </p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full data-table">
+                        <thead>
+                          <tr>
+                            <th className="py-2.5 px-3 text-left">시설</th>
+                            <th className="py-2.5 px-3 text-left hidden sm:table-cell">접수번호</th>
+                            <th className="py-2.5 px-3 text-left">물품명</th>
+                            <th className="py-2.5 px-3 text-left hidden md:table-cell">장소</th>
+                            <th className="py-2.5 px-3 text-left hidden lg:table-cell">습득일</th>
+                            <th className="py-2.5 px-3 text-left">상태</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overviewItems.slice(0,200).map(item=>{
+                            const fac=facilities.find(f=>f.id===item.facilityCode)||{name:item.facilityCode||"-"};
+                            const days=calcElapsedDays(item);
+                            const lv=item.status===STATUS.HOLDING?getAgeLevel(days):0;
+                            const rowCls=lv===4?"bg-pink-50":lv===3?"bg-red-50":lv===2?"bg-orange-50":lv===1?"bg-yellow-50":"";
+                            return(
+                              <tr key={item.id} className={`border-b border-slate-100 hover:bg-slate-50 transition ${rowCls}`}>
+                                <td className="py-2 px-3 text-xs font-bold text-gov-700 whitespace-nowrap">{fac.name}</td>
+                                <td className="py-2 px-3 text-xs font-bold text-slate-500 hidden sm:table-cell">{item.receiptNo||"-"}</td>
+                                <td className="py-2 px-3 text-sm font-bold text-slate-800">{item.itemName}</td>
+                                <td className="py-2 px-3 text-xs text-slate-500 hidden md:table-cell">{item.location}</td>
+                                <td className="py-2 px-3 text-xs text-slate-500 hidden lg:table-cell">{formatDate(item.foundDate)}</td>
+                                <td className="py-2 px-3"><Badge status={item.status}/></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {overviewItems.length>200&&<p className="text-center text-xs text-slate-400 py-3">처음 200건만 표시 (전체 {overviewItems.length}건)</p>}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── 탭: 통계 대시보드 ── */}
+        {activeTab==="stats"&&(
+          loadingItems?<Spinner/>:<StatsCharts facilities={facilities} allItems={allItems}/>
+        )}
+
+        {/* ── 탭: 엑셀 내보내기/업로드 ── */}
+        {activeTab==="dataio"&&(
+          loadingItems?<Spinner/>:<DataIOPanel facilities={facilities} allItems={allItems} showToast={showToast}/>
+        )}
+
+      </main>
+
+      {/* 모달들 */}
+      {showCreate&&<CreateFacilityModal onClose={()=>setShowCreate(false)} onCreated={()=>setShowCreate(false)} showToast={showToast} existingCodes={existingCodes}/>}
+      {editFacility&&<EditFacilityModal facility={editFacility} onClose={()=>setEditFacility(null)} onSaved={()=>setEditFacility(null)} showToast={showToast}/>}
+      {detailFacility&&<FacilityDetailPanel facility={detailFacility} onClose={()=>setDetailFacility(null)}/>}
+      {qrFacility&&<GuestQRModal facility={qrFacility} onClose={()=>setQrFacility(null)}/>}
+      {confirmDel&&(
+        <div className="modal-overlay" onClick={()=>setConfirmDel(null)}>
+          <div className="modal-box max-w-sm" onClick={e=>e.stopPropagation()}>
+            <div className="p-6 text-center space-y-4">
+              <div className="w-16 h-16 bg-red-100 rounded flex items-center justify-center mx-auto"><Icon name="Trash2" size={32} className="text-red-500"/></div>
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-800">시설 삭제 확인</h3>
+                <p className="text-sm text-slate-500 mt-2"><strong className="text-red-600">{confirmDel.name}</strong> 시설과 모든 물품 데이터가 영구 삭제됩니다.</p>
+                <p className="text-xs text-red-500 mt-1 font-bold">⚠️ 이 작업은 되돌릴 수 없습니다.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={()=>setConfirmDel(null)} className="py-3 rounded border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50">취소</button>
+                <button onClick={()=>handleDelete(confirmDel)} disabled={deleting}
+                  className="py-3 rounded bg-red-600 text-white font-extrabold text-sm hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                  {deleting?<><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> 삭제 중...</>:<><Icon name="Trash2" size={15} className="text-white"/> 삭제 확정</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <Toast msg={toast.msg} type={toast.type}/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   루트 앱
+══════════════════════════════════════════ */
+function AdminApp(){
+  const [auth,setAuth]=useState(()=>sessionStorage.getItem("adminAuth")==="1");
+  const handleLogin=()=>{ sessionStorage.setItem("adminAuth","1"); setAuth(true); };
+  const handleLogout=()=>{ sessionStorage.removeItem("adminAuth"); setAuth(false); };
+  if(!auth) return <AdminLogin onLogin={handleLogin}/>;
+  return <AdminDashboard onLogout={handleLogout}/>;
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<AdminApp/>);
+</script>
+</body>
+</html>

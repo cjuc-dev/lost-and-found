@@ -24,6 +24,8 @@
     @media print {
       .no-print{display:none!important;}
       body{background:#fff;}
+      /* 배경색 및 이미지 인쇄 강제 설정 */
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       .print-card{break-inside:avoid;box-shadow:none!important;border:1px solid #ccc!important;}
       .print-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
     }
@@ -103,7 +105,6 @@
           </div>
           <div class="text-center space-y-1">
             <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">QR코드를 스캔하세요</p>
-            <p class="text-xs text-[#1a2b5e] font-bold font-mono break-all" id="url-main-display"></p>
           </div>
           <!-- 안내 문구 -->
           <div class="w-full bg-[#eef1f8] rounded px-4 py-3 border border-[#d5dcee]">
@@ -152,7 +153,6 @@
           
           <div class="text-center space-y-0.5">
             <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">QR코드를 스캔하세요</p>
-            <p class="text-xs text-[#16a34a] font-bold font-mono break-all" id="url-guest-display"></p>
           </div>
 
           <!-- 이용 방법 안내 -->
@@ -222,9 +222,8 @@ function regenerate(){
   const fc=document.getElementById("facilityCode").value.trim();
   const gUrl=fc?(urlView+"?facility="+encodeURIComponent(fc)):urlView;
 
-  document.getElementById("url-main-display").textContent=urlMain;
-  document.getElementById("url-guest-display").textContent=gUrl;
-
+  // 주소 텍스트 표시는 제거됨 (디자인 간소화)
+  
   buildQR("qr-main", urlMain, "#1a2b5e");
 }
 
